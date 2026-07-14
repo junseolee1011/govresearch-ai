@@ -23,10 +23,10 @@ def plan_research(state: ResearchState) -> dict[str, list[str]]:
     _ = load_prompt("planner.txt")
     topic = state["topic"]
     plan = [
-        f"What public-sector problem does {topic} address?",
-        f"Which AI methodology and governance controls support {topic}?",
-        f"What platform architecture and implementation practices are relevant?",
-        f"Which government case studies demonstrate lessons for {topic}?",
+        f"Which public institutions use AI services related to {topic}?",
+        "How can the identified services be classified by service type?",
+        "Which public-service workflows and user groups does each service support?",
+        "What is each service's deployment maturity and evidence source?",
     ]
     LOGGER.info("Planner created %d research questions.", len(plan))
     return {"plan": plan}

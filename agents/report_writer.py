@@ -27,9 +27,14 @@ def write_report(state: ResearchState) -> dict[str, str]:
         f"{index}. {item}" for index, item in enumerate(state["plan"], 1)
     )
     findings_section = "\n".join(f"- {item}" for item in state["findings"])
-    sources_section = "\n".join(
-        f"- [{source['title']}]({source['url']}): {source['note']}"
+    service_inventory = "\n".join(
+        "| {title} | {institution} | {service_type} | {use_case} | {maturity} |".format(
+            **source
+        )
         for source in state["sources"]
+    )
+    sources_section = "\n".join(
+        f"- [{source['title']}]({source['url']})" for source in state["sources"]
     )
     report = f"""# GovResearch-AI Research Report
 
@@ -39,15 +44,21 @@ def write_report(state: ResearchState) -> dict[str, str]:
 
 ## Executive Summary
 
-This Sprint 1 report establishes an initial, structured view of the topic. Its
-evidence set is deterministic placeholder data and must be validated with live
-sources before it supports policy or implementation decisions.
+This Sprint 1 report inventories and classifies AI services used by public
+institutions. Its evidence set is deterministic placeholder data and must be
+validated with primary public-institution sources before use in decisions.
 
 ## Research Plan
 
 {plan_section}
 
-## Key Findings
+## AI Service Inventory and Classification
+
+| Service | Institution | Service type | Public-service use case | Maturity |
+| --- | --- | --- | --- | --- |
+{service_inventory}
+
+## Classification Findings
 
 {findings_section}
 
@@ -57,9 +68,9 @@ sources before it supports policy or implementation decisions.
 
 ## Recommended Next Steps
 
-- Validate each finding with authoritative government and primary sources.
-- Define accountable owners, risk controls, and measurable public-value outcomes.
-- Extend the workflow with live retrieval and reflection capabilities in future sprints.
+- Validate each service with an authoritative public-institution source.
+- Extend the taxonomy with sector, data sensitivity, and deployment model.
+- Add live retrieval and reflection capabilities in future sprints.
 
 ---
 

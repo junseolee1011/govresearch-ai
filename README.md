@@ -1,10 +1,11 @@
 # GovResearch-AI
 
-GovResearch-AI is an autonomous, multi-agent research workflow for public-sector
-AI topics. It plans a research task, gathers initial evidence, analyzes the
-material, and produces a structured Markdown report. Sprint 1 intentionally
-uses deterministic local agents and a dummy research source so the foundation
-can run without external AI or search services.
+GovResearch-AI is an autonomous, multi-agent research workflow for identifying
+and classifying AI services used by public institutions. It plans a research
+task, gathers initial evidence, classifies services by institution, type, use
+case, and maturity, and produces a structured Markdown report. Sprint 1 uses
+deterministic local agents and dummy research data, so it runs without external
+AI or search services.
 
 ## Features
 
@@ -12,6 +13,7 @@ can run without external AI or search services.
 - Typed, shared workflow state
 - File-based prompts and environment-based configuration
 - Structured logging and a Markdown report artifact
+- AI service inventory: institution, service type, use case, and maturity
 - Dummy research agent designed to be replaced by live search in a later sprint
 
 ## Requirements
@@ -36,7 +38,7 @@ copy the environment template with `cp .env.example .env`.
 
 ```bash
 python main.py
-python main.py --topic "AI platform implementation in local government"
+python main.py --topic "AI services used by municipal governments"
 ```
 
 The generated Markdown report is printed to the terminal and saved in

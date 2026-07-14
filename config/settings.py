@@ -34,6 +34,6 @@ def get_settings() -> Settings:
         reports_directory=reports_directory,
         default_research_topic=os.getenv(
             "DEFAULT_RESEARCH_TOPIC",
-            "Public-sector AI methodologies and implementation",
+            "AI services used by public institutions",
         ),
     )

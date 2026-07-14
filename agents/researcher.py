@@ -25,31 +25,41 @@ def conduct_research(state: ResearchState) -> dict[str, object]:
         State update containing source records and synthesized findings.
     """
     _ = load_prompt("researcher.txt")
-    topic = state["topic"]
     sources = [
         {
-            "title": "OECD AI Principles",
-            "url": "https://oecd.ai/en/ai-principles",
-            "note": "A reference framework for trustworthy, accountable AI.",
+            "title": "Dummy Citizen Service Assistant",
+            "url": "https://example.org/govresearch-ai/citizen-assistant",
+            "institution": "Example City Hall",
+            "service_type": "Citizen-facing conversational service",
+            "use_case": "Answers common municipal-service questions",
+            "maturity": "Pilot",
         },
         {
-            "title": "NIST AI Risk Management Framework",
-            "url": "https://www.nist.gov/itl/ai-risk-management-framework",
-            "note": "A lifecycle approach for governing AI risks.",
+            "title": "Dummy Document Triage Service",
+            "url": "https://example.org/govresearch-ai/document-triage",
+            "institution": "Example National Agency",
+            "service_type": "Internal workflow automation",
+            "use_case": "Classifies incoming applications for staff review",
+            "maturity": "Operational",
         },
         {
-            "title": "Dummy Sprint 1 Government Case Study",
-            "url": "https://example.org/govresearch-ai-sprint-1",
-            "note": "Placeholder evidence for the Sprint 1 research contract.",
+            "title": "Dummy Policy Insight Dashboard",
+            "url": "https://example.org/govresearch-ai/policy-insight",
+            "institution": "Example Provincial Government",
+            "service_type": "Decision-support analytics",
+            "use_case": "Summarizes service-demand trends for policy teams",
+            "maturity": "Prototype",
         },
     ]
     findings = [
-        f"{topic} should begin with a clearly defined public value and owner.",
-        "Risk management and human accountability must be built into delivery.",
-        "A reusable platform needs governance, integration, monitoring, "
-        "and adoption support.",
-        "Case-study evidence should be validated with primary government "
-        "sources in later sprints.",
+        "Public-sector AI services can be grouped into citizen-facing, "
+        "internal workflow, and decision-support services.",
+        "The classification must distinguish prototypes and pilots from "
+        "operational services.",
+        "Each service record needs a named institution, use case, and "
+        "verifiable primary source.",
+        "Sprint 1 entries are dummy data; future sprints must validate "
+        "them with authoritative public-institution sources.",
     ]
     LOGGER.info(
         "Researcher produced %d sources for %d plan items.",

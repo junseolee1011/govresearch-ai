@@ -12,11 +12,14 @@ class ResearchWorkflowTest(unittest.TestCase):
 
     def test_graph_generates_report(self) -> None:
         """The graph should execute all agents and return a Markdown report."""
-        result = build_research_graph().invoke({"topic": "Government AI adoption"})
+        result = build_research_graph().invoke(
+            {"topic": "AI services used by public institutions"}
+        )
 
         self.assertEqual(len(result["plan"]), 4)
         self.assertEqual(len(result["sources"]), 3)
         self.assertIn("# GovResearch-AI Research Report", result["report"])
+        self.assertIn("AI Service Inventory and Classification", result["report"])
 
 
 if __name__ == "__main__":
