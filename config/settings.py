@@ -20,6 +20,11 @@ class Settings:
     log_level: str
     reports_directory: Path
     default_research_topic: str
+    ollama_model: str
+    ollama_base_url: str
+    temperature: float
+    top_p: float
+    max_tokens: int
 
 
 def get_settings() -> Settings:
@@ -36,4 +41,9 @@ def get_settings() -> Settings:
             "DEFAULT_RESEARCH_TOPIC",
             "AI services used by public institutions",
         ),
+        ollama_model=os.getenv("OLLAMA_MODEL", "qwen3:8b"),
+        ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+        temperature=float(os.getenv("TEMPERATURE", "0.2")),
+        top_p=float(os.getenv("TOP_P", "0.9")),
+        max_tokens=int(os.getenv("MAX_TOKENS", "2048")),
     )
