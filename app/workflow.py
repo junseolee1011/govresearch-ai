@@ -19,7 +19,7 @@ def run_research(topic: str, settings: Settings) -> dict[str, object]:
     Returns:
         Completed workflow state.
     """
-    graph = build_research_graph()
+    graph = build_research_graph(settings)
     result = graph.invoke({"topic": topic})
     report = str(result["report"])
     settings.reports_directory.mkdir(parents=True, exist_ok=True)
