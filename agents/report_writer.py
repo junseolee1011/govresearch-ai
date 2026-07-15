@@ -1,4 +1,4 @@
-"""Report writer agent for structured research output."""
+"""Report writer agent using Ollama to generate Markdown reports."""
 
 from __future__ import annotations
 
@@ -6,75 +6,76 @@ import logging
 from datetime import UTC, datetime
 
 from app.state import ResearchState
-from tools.prompt_loader import load_prompt
+from config.settings import Settings
+from tools.logger import log_node_execution
+from tools.ollama_client import get_llm
+from tools.prompt_loader import render_prompt
 
 
 LOGGER = logging.getLogger(__name__)
 
 
-def write_report(state: ResearchState) -> dict[str, str]:
-    """Generate a structured Markdown report from workflow evidence.
+def make_write_report(settings: Settings):
+    """Factory function to create a report writer node with settings injected.
 
     Args:
-        state: Workflow state with research plan, sources, and findings.
+        settings: Application settings with Ollama configuration.
 
     Returns:
-        State update containing the rendered Markdown report.
+        A node function that accepts ResearchState.
     """
-    _ = load_prompt("report_writer.txt")
-    generated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-    plan_section = "\n".join(
-        f"{index}. {item}" for index, item in enumerate(state["plan"], 1)
-    )
-    findings_section = "\n".join(f"- {item}" for item in state["findings"])
-    service_inventory = "\n".join(
-        "| {title} | {institution} | {service_type} | {use_case} | {maturity} |".format(
-            **source
-        )
-        for source in state["sources"]
-    )
-    sources_section = "\n".join(
-        f"- [{source['title']}]({source['url']})" for source in state["sources"]
-    )
-    report = f"""# GovResearch-AI Research Report
 
-## Topic
+    def write_report(state: ResearchState) -> dict[str, str]:
+        """Generate a structured Markdown report using Ollama.
 
-{state["topic"]}
+        Args:
+            state: Workflow state with research plan, sources, and findings.
 
-## Executive Summary
+        Returns:
+            State update containing the generated Markdown report.
+        """
+        with log_node_execution("report_writer") as metrics:
+            try:
+                llm = get_llm(settings)
 
-This Sprint 1 report inventories and classifies AI services used by public
-institutions. Its evidence set is deterministic placeholder data and must be
-validated with primary public-institution sources before use in decisions.
+                # Format context for the LLM
+                plan_text = "\n".join(
+                    f"{i}. {item}" for i, item in enumerate(state["plan"], 1)
+                )
+                findings_text = "\n".join(
+                    f"- {finding}" for finding in state["findings"]
+                )
+                sources_text = "\n".join(
+                    f"- {source['title']} ({source['institution']}): {source['use_case']}"
+                    for source in state["sources"]
+                )
 
-## Research Plan
+                prompt = render_prompt(
+                    "report_writer.txt",
+                    query=state["topic"],
+                    research_plan=plan_text,
+                    documents=f"Findings:\n{findings_text}\n\nSources:\n{sources_text}",
+                )
 
-{plan_section}
+                LOGGER.debug("Report writer prompt: %s", prompt)
 
-## AI Service Inventory and Classification
+                report = llm.invoke(prompt)
+                metrics["response_length"] = len(report)
 
-| Service | Institution | Service type | Public-service use case | Maturity |
-| --- | --- | --- | --- | --- |
-{service_inventory}
+                # Ensure report has proper Markdown structure
+                if not report.strip().startswith("#"):
+                    report = f"# GovResearch-AI Research Report\n\n{report}"
 
-## Classification Findings
+                # Add metadata footer
+                generated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+                report += f"\n\n---\n\nGenerated: {generated_at}"
 
-{findings_section}
+                LOGGER.info(
+                    "Report writer generated report (%d characters).", len(report)
+                )
+                return {"report": report}
+            except Exception as e:
+                LOGGER.error("Report writer failed: %s", str(e), exc_info=True)
+                raise
 
-## Source Notes
-
-{sources_section}
-
-## Recommended Next Steps
-
-- Validate each service with an authoritative public-institution source.
-- Extend the taxonomy with sector, data sensitivity, and deployment model.
-- Add live retrieval and reflection capabilities in future sprints.
-
----
-
-Generated: {generated_at}
-"""
-    LOGGER.info("Report writer generated a report for topic: %s", state["topic"])
-    return {"report": report}
+    return write_report
