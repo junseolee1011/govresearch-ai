@@ -31,6 +31,10 @@ def build_research_graph(settings: Settings) -> object:
         """Wrapper for retriever to inject settings."""
         return retrieve_documents(state, settings)
 
+    def should_search_web_node(state: ResearchState) -> str:
+        """Wrapper for should_search_web to inject settings."""
+        return should_search_web(state, settings)
+
     def researcher_node(state: ResearchState) -> dict[str, object]:
         """Wrapper for researcher to inject settings."""
         return conduct_research(state, settings)
@@ -91,7 +95,7 @@ def build_research_graph(settings: Settings) -> object:
     # Conditional edge: decide whether to search web or skip to summarizer
     workflow.add_conditional_edges(
         "retriever",
-        should_search_web,
+        should_search_web_node,
         {
             "search": "researcher",
             "skip": "summarizer",
