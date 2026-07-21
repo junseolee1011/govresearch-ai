@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from app.workflow import run_research
 from config.settings import get_settings
@@ -22,6 +23,12 @@ def parse_arguments() -> argparse.Namespace:
 
 def main() -> None:
     """Execute the Planner → Research → Report workflow and print its report."""
+    # Set UTF-8 encoding for Windows console
+    if sys.platform == "win32":
+        import codecs
+        sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, 'strict')
+        sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, 'strict')
+    
     settings = get_settings()
     configure_logging(settings.log_level)
     arguments = parse_arguments()
