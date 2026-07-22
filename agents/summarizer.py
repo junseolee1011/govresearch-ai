@@ -45,7 +45,14 @@ def make_summarize_findings(settings: Settings):
                 if retrieved_docs:
                     context_snippets = []
                     for doc in retrieved_docs[:5]:  # Limit to top 5 retrieved docs
-                        context_snippets.append(f"- {doc['title']}: {doc['content'][:300]}")
+                        # Handle both Document objects and dictionaries
+                        if hasattr(doc, 'title'):
+                            title = doc.title
+                            content = doc.content
+                        else:
+                            title = doc.get('title', '')
+                            content = doc.get('content', '')
+                        context_snippets.append(f"- {title}: {content[:300]}")
                     retrieved_context = "\n".join(context_snippets)
                     LOGGER.info(f"Using {len(retrieved_docs)} retrieved documents in summary")
                 else:
