@@ -187,7 +187,7 @@ Retriever (search ChromaDB)
 Decision (enough context?)
     ↓
     ├─ Yes → Summarizer → Report Writer
-    └─ No → Research (Tavily) → Store (ChromaDB) → Retriever → Summarizer → Report Writer
+    └─ No → Research (Tavily) → Store (ChromaDB) → Summarizer → Report Writer
 ```
 
 ## Sprint 4 Implementation

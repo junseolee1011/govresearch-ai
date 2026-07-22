@@ -99,7 +99,7 @@ def build_research_graph(settings: Settings) -> object:
     )
     
     workflow.add_edge("researcher", "store")
-    workflow.add_edge("store", "retriever")
+    workflow.add_edge("store", "summarizer")
     workflow.add_edge("summarizer", "report_writer")
     workflow.add_edge("report_writer", END)
     
