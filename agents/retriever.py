@@ -1,19 +1,16 @@
 """Retriever agent for RAG system."""
 
 import logging
-from typing import TYPE_CHECKING
 
 from app.state import ResearchState
+from config.settings import Settings
 from tools.vector_store import VectorStore
-
-if TYPE_CHECKING:
-    from config.settings import Settings
 
 
 LOGGER = logging.getLogger(__name__)
 
 
-def retrieve_documents(state: ResearchState, settings: "Settings") -> dict[str, object]:
+def retrieve_documents(state: ResearchState, settings: Settings) -> dict[str, object]:
     """Retrieve relevant documents from vector store.
     
     Args:
@@ -57,7 +54,7 @@ def retrieve_documents(state: ResearchState, settings: "Settings") -> dict[str, 
     }
 
 
-def should_search_web(state: ResearchState, settings: "Settings") -> str:
+def should_search_web(state: ResearchState, settings: Settings) -> str:
     """Decide whether to perform web search based on retrieval results.
     
     Args:
