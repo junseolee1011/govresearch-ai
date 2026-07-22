@@ -18,14 +18,14 @@ LOGGER = logging.getLogger(__name__)
 
 
 def extract_facts_from_document(doc: dict, llm) -> dict:
-    """Extract structured facts from a single document.
+    """Extract structured facts from a single document with strict rules.
     
     Args:
         doc: Document dictionary with title, url, content.
         llm: Ollama LLM instance.
         
     Returns:
-        Structured fact dictionary.
+        Structured fact dictionary with null for unknown values.
     """
     title = doc.get("title", "")
     url = doc.get("url", "")
@@ -36,21 +36,24 @@ def extract_facts_from_document(doc: dict, llm) -> dict:
 
 Document Title: {title}
 URL: {url}
-Content: {content[:1000]}
+Content: {content[:1500]}
 
-Extract the following fields as JSON. Use null if information is not available. Do not invent values.
+Extract the following fields as JSON. Use null if information is not available. Do not invent values. Do not infer missing information.
 
 Required fields:
-- organization: Name of the organization/institution
-- service_name: Name of the AI service
-- country: Country where the service is deployed
-- service_type: Type of AI service (e.g., chatbot, document analysis, prediction, etc.)
-- llm: LLM model used (if known)
-- rag: Boolean indicating if RAG is used
-- launch_year: Year of launch
-- purpose: Purpose of the AI service
-- benefit: Benefits or outcomes
+- organization: Name of the organization/institution (null if not found)
+- country: Country where the service is deployed (null if not found)
+- service_name: Name of the AI service (null if not found)
+- service_type: Type of AI service (null if not found)
+- technology: Technology stack used (null if not found)
+- llm_model: LLM model used (null if not found)
+- rag: Boolean indicating if RAG is used (null if not found)
+- launch_year: Year of launch (null if not found)
+- purpose: Purpose of the AI service (null if not found)
+- benefits: List of benefits (empty array if not found)
+- limitations: List of limitations (empty array if not found)
 - source_url: URL of the source
+- source_title: Title of the source
 - source_quality: Quality score (1-5)
 
 Return only valid JSON, nothing else."""
@@ -59,7 +62,6 @@ Return only valid JSON, nothing else."""
         response = llm.invoke(prompt)
         
         # Try to parse JSON from response
-        # Handle cases where LLM adds extra text
         json_start = response.find("{")
         json_end = response.rfind("}") + 1
         
@@ -67,41 +69,61 @@ Return only valid JSON, nothing else."""
             json_str = response[json_start:json_end]
             facts = json.loads(json_str)
         else:
-            # Fallback: create minimal fact structure
+            # Fallback: create minimal fact structure with nulls
             facts = {
                 "organization": None,
-                "service_name": title,
                 "country": None,
+                "service_name": None,
                 "service_type": None,
-                "llm": None,
+                "technology": None,
+                "llm_model": None,
                 "rag": None,
                 "launch_year": None,
                 "purpose": None,
-                "benefit": None,
+                "benefits": [],
+                "limitations": [],
                 "source_url": url,
+                "source_title": title,
                 "source_quality": source_quality,
             }
         
-        # Ensure source_url and source_quality are set
+        # Ensure required fields exist with null defaults
+        facts.setdefault("organization", None)
+        facts.setdefault("country", None)
+        facts.setdefault("service_name", None)
+        facts.setdefault("service_type", None)
+        facts.setdefault("technology", None)
+        facts.setdefault("llm_model", None)
+        facts.setdefault("rag", None)
+        facts.setdefault("launch_year", None)
+        facts.setdefault("purpose", None)
+        facts.setdefault("benefits", [])
+        facts.setdefault("limitations", [])
+        
+        # Set source fields
         facts["source_url"] = url
+        facts["source_title"] = title
         facts["source_quality"] = source_quality
         
         return facts
         
     except Exception as e:
         LOGGER.error(f"Failed to extract facts from {title}: {e}")
-        # Return minimal structure on error
+        # Return minimal structure with nulls on error
         return {
             "organization": None,
-            "service_name": title,
             "country": None,
+            "service_name": None,
             "service_type": None,
-            "llm": None,
+            "technology": None,
+            "llm_model": None,
             "rag": None,
             "launch_year": None,
             "purpose": None,
-            "benefit": None,
+            "benefits": [],
+            "limitations": [],
             "source_url": url,
+            "source_title": title,
             "source_quality": source_quality,
         }
 

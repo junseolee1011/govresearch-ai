@@ -1,4 +1,4 @@
-"""Report writer agent using Ollama to generate Markdown reports."""
+"""Report writer agent using Ollama to generate Markdown reports from validated facts."""
 
 from __future__ import annotations
 
@@ -9,8 +9,6 @@ from app.state import ResearchState
 from config.settings import Settings
 from tools.logger import log_node_execution
 from tools.ollama_client import get_llm
-from tools.prompt_loader import render_prompt
-from tools.source_ranker import calculate_average_quality, categorize_sources
 
 
 LOGGER = logging.getLogger(__name__)
@@ -27,29 +25,37 @@ def make_write_report(settings: Settings):
     """
 
     def write_report(state: ResearchState) -> dict[str, str]:
-        """Generate a structured Markdown report using programmatic structure.
+        """Generate a structured Markdown report from validated facts only.
 
         Args:
-            state: Workflow state with research plan, sources, and findings.
+            state: Workflow state with validated facts.
 
         Returns:
             State update containing the generated Markdown report.
         """
         with log_node_execution("report_writer") as metrics:
             try:
-                llm = get_llm(settings)
+                facts = state.get("validated_facts", [])
                 
-                # Build report structure programmatically
-                report = build_report_structure(state, llm)
+                # Quality gate: check if we have enough data
+                if len(facts) < 5:
+                    report = generate_insufficient_data_report(facts)
+                    metrics["response_length"] = len(report)
+                    LOGGER.warning(f"Insufficient data for report: {len(facts)} facts")
+                    return {"report": report}
+                
+                # Build report from validated facts only
+                report = build_report_from_facts(state, facts)
                 
                 metrics["response_length"] = len(report)
+                metrics["fact_count"] = len(facts)
                 
                 # Add metadata footer
                 generated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
                 report += f"\n\n---\n\n생성일: {generated_at}"
                 
                 LOGGER.info(
-                    "Report writer generated report (%d characters).", len(report)
+                    "Report writer generated report (%d characters) from %d validated facts.", len(report), len(facts)
                 )
                 return {"report": report}
             except Exception as e:
@@ -59,19 +65,42 @@ def make_write_report(settings: Settings):
     return write_report
 
 
-def build_report_structure(state: ResearchState, llm) -> str:
-    """Build report structure programmatically with LLM content generation.
+def generate_insufficient_data_report(facts: list[dict]) -> str:
+    """Generate report when insufficient data is available.
+    
+    Args:
+        facts: Validated facts (may be empty or insufficient).
+        
+    Returns:
+        Insufficient data report.
+    """
+    report = "# GovResearch-AI 연구 보고서\n\n"
+    report += "## 데이터 부족\n\n"
+    report += f"연구 데이터가 부족하여 보고서를 생성할 수 없습니다.\n\n"
+    report += f"검증된 팩트 수: {len(facts)}\n"
+    report += "최소 5개 이상의 검증된 팩트가 필요합니다.\n\n"
+    
+    if facts:
+        report += "## 검증된 팩트\n\n"
+        for i, fact in enumerate(facts, 1):
+            org = fact.get("organization", "알 수 없음")
+            service = fact.get("service_name", "알 수 없음")
+            report += f"{i}. {org} - {service}\n"
+    
+    return report
+
+
+def build_report_from_facts(state: ResearchState, facts: list[dict]) -> str:
+    """Build report structure from validated facts only.
     
     Args:
         state: Workflow state with research data.
-        llm: Ollama LLM instance for content generation.
+        facts: Validated facts.
         
     Returns:
         Complete Markdown report.
     """
     topic = state["topic"]
-    plan = state["plan"]
-    facts = state.get("extracted_facts", [])
     search_queries = state.get("search_queries", [])
     search_summary = state.get("search_summary", "")
     reflection_metrics = state.get("reflection_metrics", {})
@@ -81,7 +110,7 @@ def build_report_structure(state: ResearchState, llm) -> str:
     
     # Executive Summary
     report += "## Executive Summary\n"
-    report += generate_executive_summary(topic, search_summary, facts, llm)
+    report += generate_executive_summary_from_facts(topic, facts, search_summary)
     report += "\n"
     
     # Research Objective
@@ -90,7 +119,7 @@ def build_report_structure(state: ResearchState, llm) -> str:
     
     # Methodology
     report += "## Methodology\n"
-    report += generate_methodology(search_queries, reflection_metrics, llm)
+    report += generate_real_methodology(search_queries, reflection_metrics)
     report += "\n"
     
     # Search Strategy
@@ -101,32 +130,27 @@ def build_report_structure(state: ResearchState, llm) -> str:
     
     # Organization Inventory
     report += "## Organization Inventory\n"
-    report += generate_organization_inventory(facts)
+    report += generate_organization_inventory_from_facts(facts)
     report += "\n"
     
     # Domestic Cases
     report += "## Domestic Cases\n"
-    report += generate_domestic_cases(facts)
+    report += generate_domestic_cases_from_facts(facts)
     report += "\n"
     
     # International Cases
     report += "## International Cases\n"
-    report += generate_international_cases(facts)
+    report += generate_international_cases_from_facts(facts)
     report += "\n"
     
     # Technology Stack
     report += "## Technology Stack\n"
-    report += generate_technology_stack(facts)
-    report += "\n"
-    
-    # Source Statistics
-    report += "## Source Statistics\n"
-    report += generate_source_statistics(facts)
+    report += generate_technology_stack_from_facts(facts)
     report += "\n"
     
     # Implementation Patterns
     report += "## Implementation Patterns\n"
-    report += generate_implementation_patterns(facts, llm)
+    report += generate_implementation_patterns_from_facts(facts)
     report += "\n"
     
     # Key Findings
@@ -134,179 +158,85 @@ def build_report_structure(state: ResearchState, llm) -> str:
     report += search_summary
     report += "\n\n"
     
-    # Recommendations
-    report += "## Recommendations\n"
-    report += generate_recommendations_sprint5(topic, facts, search_summary, llm)
-    report += "\n"
+    # Recommendations (only if we have enough facts)
+    if len(facts) >= 5:
+        report += "## Recommendations\n"
+        report += generate_recommendations_from_facts(facts)
+        report += "\n"
     
     # Limitations
     report += "## Limitations\n"
-    report += generate_limitations(facts, reflection_metrics, llm)
+    report += generate_limitations_from_facts(facts, reflection_metrics)
     report += "\n"
     
     # References with citations
     report += "## References\n"
-    report += generate_references(facts)
+    report += generate_references_from_facts(facts)
     
     return report
 
 
-def generate_next_steps(topic: str, findings: list[str], llm) -> str:
-    """Generate next steps using LLM.
+def generate_executive_summary_from_facts(topic: str, facts: list[dict], summary: str) -> str:
+    """Generate executive summary from facts.
     
     Args:
         topic: Research topic.
-        findings: List of findings.
-        llm: Ollama LLM instance.
-        
-    Returns:
-        Generated next steps text.
-    """
-    findings_text = "\n".join(f"- {finding}" for finding in findings)
-    
-    prompt = f"""다음 연구 주제와 발견 사항을 바탕으로 향후 조사 방향을 3-5개 제안하세요.
-
-연구 주제: {topic}
-
-발견 사항:
-{findings_text}
-
-다음 단계는 한국어로 작성하고 각 단계는 번호로 구분하세요."""
-    
-    try:
-        return llm.invoke(prompt)
-    except Exception as e:
-        LOGGER.error("Failed to generate next steps: %s", str(e))
-        return "향후 조사 방향을 생성하는데 실패했습니다.\n- 추가적인 웹 검색 수행\n- 전문가 인터뷰\n- 사례 심층 분석"
-
-
-def generate_comparison(retrieved_docs: list[dict], search_summary: str, llm) -> str:
-    """Generate comparison between retrieved knowledge and new findings.
-    
-    Args:
-        retrieved_docs: List of retrieved documents.
-        search_summary: Summary of new search results.
-        llm: Ollama LLM instance.
-        
-    Returns:
-        Generated comparison text.
-    """
-    retrieved_text = "\n".join(f"- {doc['title']}: {doc['content'][:150]}" for doc in retrieved_docs[:3])
-    
-    prompt = f"""다음 검색된 지식과 새로운 발견을 비교 분석하세요.
-
-검색된 지식:
-{retrieved_text}
-
-새로운 발견:
-{search_summary}
-
-비교 분석은 한국어로 작성하고 다음 내용을 포함하세요:
-- 일치하는 내용
-- 새로운 정보
-- 시간적 변화나 트렌드"""
-    
-    try:
-        return llm.invoke(prompt)
-    except Exception as e:
-        LOGGER.error("Failed to generate comparison: %s", str(e))
-        return "비교 분석을 생성하는데 실패했습니다."
-
-
-def generate_recommendations(topic: str, findings: list[str], retrieved_docs: list[dict], llm) -> str:
-    """Generate recommendations based on research findings.
-    
-    Args:
-        topic: Research topic.
-        findings: List of findings.
-        retrieved_docs: List of retrieved documents.
-        llm: Ollama LLM instance.
-        
-    Returns:
-        Generated recommendations text.
-    """
-    findings_text = "\n".join(f"- {finding}" for finding in findings)
-    
-    prompt = f"""다음 연구 결과를 바탕으로 실질적인 권장 사항을 3-5개 제안하세요.
-
-연구 주제: {topic}
-
-발견 사항:
-{findings_text}
-
-권장 사항은 한국어로 작성하고 각 권장 사항은 번호로 구분하세요."""
-    
-    try:
-        return llm.invoke(prompt)
-    except Exception as e:
-        LOGGER.error("Failed to generate recommendations: %s", str(e))
-        return "권장 사항을 생성하는데 실패했습니다.\n- 추가 데이터 수집\n- 정책 검토\n- 이해관계자 협의"
-
-
-def generate_executive_summary(topic: str, summary: str, facts: list[dict], llm) -> str:
-    """Generate executive summary.
-    
-    Args:
-        topic: Research topic.
+        facts: Validated facts.
         summary: Search summary.
-        facts: Extracted facts.
-        llm: Ollama LLM instance.
         
     Returns:
-        Generated executive summary.
+        Executive summary.
     """
-    prompt = f"""다음 연구 결과를 바탕으로 실행 요약(Executive Summary)을 작성하세요.
-
-연구 주제: {topic}
-
-연구 요약:
-{summary}
-
-실행 요약은 한국어로 작성하고 2-3문단으로 구성하세요."""
+    org_count = len(set(f.get("organization") for f in facts if f.get("organization")))
+    service_count = len(set(f.get("service_name") for f in facts if f.get("service_name")))
     
-    try:
-        return llm.invoke(prompt)
-    except Exception as e:
-        LOGGER.error("Failed to generate executive summary: %s", str(e))
-        return summary
+    report = f"본 연구는 '{topic}'에 대한 조사를 수행했습니다.\n\n"
+    report += f"총 {org_count}개 기관의 {service_count}개 AI 서비스를 식별했습니다.\n\n"
+    report += summary
+    
+    return report
 
 
-def generate_methodology(queries: list[str], metrics: dict, llm) -> str:
-    """Generate methodology section.
+def generate_real_methodology(queries: list[str], metrics: dict) -> str:
+    """Generate real methodology description.
     
     Args:
         queries: Search queries used.
         metrics: Reflection metrics.
-        llm: Ollama LLM instance.
         
     Returns:
-        Generated methodology text.
+        Real methodology description.
     """
-    metrics_text = "\n".join(f"- {k}: {v}" for k, v in metrics.items())
+    report = "### 검색 엔진\n"
+    report += "- Tavily (웹 검색)\n\n"
     
-    prompt = f"""다음 정보를 바탕으로 연구 방법론(Methodology)을 작성하세요.
-
-검색 쿼리 수: {len(queries)}
-품질 지표:
-{metrics_text}
-
-방법론은 한국어로 작성하고 검색 전략, 품질 관리, 데이터 추출 방법을 설명하세요."""
+    report += "### LLM\n"
+    report += "- Qwen3 via Ollama (로컬 추론)\n\n"
     
-    try:
-        return llm.invoke(prompt)
-    except Exception as e:
-        LOGGER.error("Failed to generate methodology: %s", str(e))
-        return f"검색 쿼리 {len(queries)}개를 사용하여 웹 검색을 수행했습니다."
+    report += "### 리트리버\n"
+    report += "- ChromaDB (벡터 데이터베이스)\n\n"
+    
+    report += "### 리플렉션\n"
+    report += "- 활성화됨 (품질 평가)\n\n"
+    
+    report += "### 팩트 검증\n"
+    report += "- 활성화됨 (데이터 검증)\n\n"
+    
+    report += "### 검색 쿼리\n"
+    for i, query in enumerate(queries, 1):
+        report += f"{i}. {query}\n"
+    
+    return report
 
 
-def generate_organization_inventory(facts: list[dict]) -> str:
-    """Generate organization inventory table.
+def generate_organization_inventory_from_facts(facts: list[dict]) -> str:
+    """Generate organization inventory from facts.
     
     Args:
-        facts: Extracted facts.
+        facts: Validated facts.
         
     Returns:
-        Markdown table of organizations.
+        Organization inventory table.
     """
     if not facts:
         return "조직 정보를 찾을 수 없습니다.\n"
@@ -324,11 +254,11 @@ def generate_organization_inventory(facts: list[dict]) -> str:
     return report
 
 
-def generate_domestic_cases(facts: list[dict]) -> str:
-    """Generate domestic cases section.
+def generate_domestic_cases_from_facts(facts: list[dict]) -> str:
+    """Generate domestic cases from facts.
     
     Args:
-        facts: Extracted facts.
+        facts: Validated facts.
         
     Returns:
         Domestic cases text.
@@ -339,7 +269,7 @@ def generate_domestic_cases(facts: list[dict]) -> str:
         return "국내 사례를 찾을 수 없습니다.\n"
     
     report = ""
-    for fact in domestic[:10]:
+    for fact in domestic:
         org = fact.get("organization", "알 수 없음")
         service = fact.get("service_name", "알 수 없음")
         purpose = fact.get("purpose", "")
@@ -350,11 +280,11 @@ def generate_domestic_cases(facts: list[dict]) -> str:
     return report
 
 
-def generate_international_cases(facts: list[dict]) -> str:
-    """Generate international cases section.
+def generate_international_cases_from_facts(facts: list[dict]) -> str:
+    """Generate international cases from facts.
     
     Args:
-        facts: Extracted facts.
+        facts: Validated facts.
         
     Returns:
         International cases text.
@@ -365,7 +295,7 @@ def generate_international_cases(facts: list[dict]) -> str:
         return "국제 사례를 찾을 수 없습니다.\n"
     
     report = ""
-    for fact in international[:10]:
+    for fact in international:
         org = fact.get("organization", "알 수 없음")
         country = fact.get("country", "알 수 없음")
         service = fact.get("service_name", "알 수 없음")
@@ -374,24 +304,28 @@ def generate_international_cases(facts: list[dict]) -> str:
     return report
 
 
-def generate_technology_stack(facts: list[dict]) -> str:
-    """Generate technology stack section.
+def generate_technology_stack_from_facts(facts: list[dict]) -> str:
+    """Generate technology stack from facts.
     
     Args:
-        facts: Extracted facts.
+        facts: Validated facts.
         
     Returns:
         Technology stack text.
     """
     llms = set()
     rag_count = 0
+    technologies = set()
     
     for fact in facts:
-        llm = fact.get("llm")
+        llm = fact.get("llm_model")
         if llm:
             llms.add(llm)
         if fact.get("rag"):
             rag_count += 1
+        tech = fact.get("technology")
+        if tech:
+            technologies.add(tech)
     
     report = ""
     if llms:
@@ -400,54 +334,23 @@ def generate_technology_stack(facts: list[dict]) -> str:
             report += f"- {llm}\n"
         report += "\n"
     
+    if technologies:
+        report += "### Technologies\n"
+        for tech in technologies:
+            report += f"- {tech}\n"
+        report += "\n"
+    
     report += f"### RAG Usage\n"
     report += f"- RAG 사용 사례: {rag_count}개\n"
     
     return report
 
 
-def generate_source_statistics(facts: list[dict]) -> str:
-    """Generate source statistics section.
+def generate_implementation_patterns_from_facts(facts: list[dict]) -> str:
+    """Generate implementation patterns from facts.
     
     Args:
-        facts: Extracted facts.
-        
-    Returns:
-        Source statistics text.
-    """
-    if not facts:
-        return "출처 통계를 생성할 데이터가 없습니다.\n"
-    
-    # Build source list from facts
-    sources = []
-    for fact in facts:
-        url = fact.get("source_url", "")
-        if url:
-            sources.append({"url": url, "source_quality": fact.get("source_quality", 3)})
-    
-    # Categorize sources
-    categories = categorize_sources(sources)
-    
-    # Calculate average quality
-    avg_quality = calculate_average_quality(sources)
-    
-    report = "### Source Type Distribution\n"
-    for category, count in categories.items():
-        report += f"- {category}: {count}\n"
-    report += "\n"
-    
-    report += f"### Average Source Quality\n"
-    report += f"- Overall quality score: {avg_quality:.2f}/5\n"
-    
-    return report
-
-
-def generate_implementation_patterns(facts: list[dict], llm) -> str:
-    """Generate implementation patterns section.
-    
-    Args:
-        facts: Extracted facts.
-        llm: Ollama LLM instance.
+        facts: Validated facts.
         
     Returns:
         Implementation patterns text.
@@ -458,60 +361,67 @@ def generate_implementation_patterns(facts: list[dict], llm) -> str:
         if st:
             service_types[st] = service_types.get(st, 0) + 1
     
-    types_text = "\n".join(f"- {t}: {c}개" for t, c in service_types.items())
+    report = "### 서비스 유형 분포\n"
+    for service_type, count in service_types.items():
+        report += f"- {service_type}: {count}개\n"
     
-    prompt = f"""다음 서비스 유형 분포를 바탕으로 구현 패턴을 분석하세요.
-
-서비스 유형 분포:
-{types_text}
-
-구현 패턴은 한국어로 작성하고 공통 패턴, 기술 트렌드, 성공 요인을 설명하세요."""
-    
-    try:
-        return llm.invoke(prompt)
-    except Exception as e:
-        LOGGER.error("Failed to generate implementation patterns: %s", str(e))
-        return types_text
+    return report
 
 
-def generate_recommendations_sprint5(topic: str, facts: list[dict], summary: str, llm) -> str:
-    """Generate recommendations based on Sprint 5 requirements.
+def generate_recommendations_from_facts(facts: list[dict]) -> str:
+    """Generate recommendations from facts only.
     
     Args:
-        topic: Research topic.
-        facts: Extracted facts.
-        summary: Search summary.
-        llm: Ollama LLM instance.
+        facts: Validated facts.
         
     Returns:
-        Generated recommendations.
+        Recommendations based on facts.
     """
-    prompt = f"""다음 연구 결과를 바탕으로 전문적인 권장 사항을 작성하세요.
-
-연구 주제: {topic}
-
-연구 요약:
-{summary}
-
-권장 사항은 실질적이고 실행 가능해야 하며, 연구 결과에서 도출된 내용이어야 합니다.
-일반적인 조언이 아닌 구체적인 권장 사항을 제시하세요.
-
-한국어로 작성하고 번호로 구분하세요."""
+    # Analyze facts to generate data-driven recommendations
+    rag_count = sum(1 for f in facts if f.get("rag"))
+    total_count = len(facts)
     
-    try:
-        return llm.invoke(prompt)
-    except Exception as e:
-        LOGGER.error("Failed to generate recommendations: %s", str(e))
-        return "권장 사항을 생성하는데 실패했습니다."
+    report = ""
+    
+    if rag_count > 0:
+        rag_ratio = (rag_count / total_count) * 100
+        report += f"조사된 {total_count}개 조직 중 {rag_count}개({rag_ratio:.1f}%)가 RAG 기반 문서 검색을 채택했습니다. "
+        report += "이는 문서 중심 AI가 지배적인 패턴임을 나타냅니다.\n\n"
+    
+    # Analyze service types
+    service_types = {}
+    for fact in facts:
+        st = fact.get("service_type")
+        if st:
+            service_types[st] = service_types.get(st, 0) + 1
+    
+    if service_types:
+        dominant_type = max(service_types.items(), key=lambda x: x[1])
+        report += f"가장 일반적인 서비스 유형은 '{dominant_type[0]}'으로 {dominant_type[1]}개 사례에서 확인되었습니다.\n\n"
+    
+    # Analyze benefits
+    benefits = []
+    for fact in facts:
+        fact_benefits = fact.get("benefits", [])
+        benefits.extend(fact_benefits)
+    
+    if benefits:
+        report += "주요 혜택:\n"
+        for benefit in set(benefits[:5]):
+            report += f"- {benefit}\n"
+    
+    if not report:
+        report = "추천사항을 생성하기에 충분한 데이터가 없습니다.\n"
+    
+    return report
 
 
-def generate_limitations(facts: list[dict], metrics: dict, llm) -> str:
-    """Generate limitations section.
+def generate_limitations_from_facts(facts: list[dict], metrics: dict) -> str:
+    """Generate limitations from facts.
     
     Args:
-        facts: Extracted facts.
+        facts: Validated facts.
         metrics: Reflection metrics.
-        llm: Ollama LLM instance.
         
     Returns:
         Limitations text.
@@ -519,26 +429,23 @@ def generate_limitations(facts: list[dict], metrics: dict, llm) -> str:
     fact_count = len(facts)
     org_count = len(set(f.get("organization") for f in facts if f.get("organization")))
     
-    prompt = f"""다음 정보를 바탕으로 연구의 한계점을 작성하세요.
-
-팩트 수: {fact_count}
-조직 수: {org_count}
-품질 지표: {metrics}
-
-한계점은 한국어로 작성하고 데이터 수집 범위, 품질 제약, 기타 한계를 설명하세요."""
+    report = f"본 연구는 {fact_count}개의 검증된 팩트와 {org_count}개의 조직을 기반으로 수행되었습니다.\n\n"
     
-    try:
-        return llm.invoke(prompt)
-    except Exception as e:
-        LOGGER.error("Failed to generate limitations: %s", str(e))
-        return f"연구는 {fact_count}개의 팩트와 {org_count}개의 조직을 기반으로 수행되었습니다."
+    if fact_count < 10:
+        report += "데이터 수집 범위가 제한적입니다.\n\n"
+    
+    report += "품질 지표:\n"
+    for k, v in metrics.items():
+        report += f"- {k}: {v}\n"
+    
+    return report
 
 
-def generate_references(facts: list[dict]) -> str:
-    """Generate numbered references.
+def generate_references_from_facts(facts: list[dict]) -> str:
+    """Generate numbered references from validated facts.
     
     Args:
-        facts: Extracted facts.
+        facts: Validated facts.
         
     Returns:
         Numbered references list.
@@ -549,12 +456,12 @@ def generate_references(facts: list[dict]) -> str:
     report = ""
     for i, fact in enumerate(facts, 1):
         url = fact.get("source_url", "")
-        service = fact.get("service_name", "알 수 없음")
+        title = fact.get("source_title", "알 수 없음")
         org = fact.get("organization", "알 수 없음")
         
         if url:
-            report += f"[{i}] {org} - {service}. {url}\n"
+            report += f"[{i}] {org} - {title}. {url}\n"
         else:
-            report += f"[{i}] {org} - {service}\n"
+            report += f"[{i}] {org} - {title}\n"
     
     return report

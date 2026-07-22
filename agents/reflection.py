@@ -1,4 +1,4 @@
-"""Reflection agent for research quality evaluation."""
+"""Reflection agent for research quality evaluation based on validated facts."""
 
 import logging
 from typing import TYPE_CHECKING
@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 from app.state import ResearchState
 from config.settings import Settings
 from tools.logger import log_node_execution
-from tools.source_ranker import calculate_average_quality, categorize_sources
 
 if TYPE_CHECKING:
     pass
@@ -16,10 +15,10 @@ LOGGER = logging.getLogger(__name__)
 
 
 def evaluate_research_quality(state: ResearchState, settings: Settings) -> dict[str, object]:
-    """Evaluate research quality and determine if additional research is needed.
+    """Evaluate research quality based on validated facts.
     
     Args:
-        state: Workflow state with extracted facts and sources.
+        state: Workflow state with validated facts.
         settings: Application settings.
         
     Returns:
@@ -27,13 +26,12 @@ def evaluate_research_quality(state: ResearchState, settings: Settings) -> dict[
     """
     with log_node_execution("reflection") as metrics:
         try:
-            facts = state.get("extracted_facts", [])
-            search_results = state.get("search_results", [])
+            facts = state.get("validated_facts", [])
             reflection_count = state.get("reflection_count", 0)
             
-            # Calculate metrics
+            # Calculate metrics from validated facts
             unique_organizations = set()
-            government_sources = 0
+            government_organizations = 0
             international_cases = 0
             implementation_examples = 0
             
@@ -42,39 +40,34 @@ def evaluate_research_quality(state: ResearchState, settings: Settings) -> dict[
                 if org:
                     unique_organizations.add(org)
                 
+                # Count government organizations
+                url = fact.get("source_url", "")
+                if ".gov" in url or "gov.kr" in url or "go.kr" in url or "or.kr" in url:
+                    government_organizations += 1
+                
+                # Count international cases
                 country = fact.get("country")
-                if country and country.lower() not in ["korea", "south korea", "한국"]:
+                if country and country.lower() not in ["korea", "south korea", "한국", "kr"]:
                     international_cases += 1
                 
+                # Count implementation examples
                 service_type = fact.get("service_type")
                 if service_type:
                     implementation_examples += 1
             
-            # Count government sources
-            for source in search_results:
-                url = source.get("url", "")
-                if ".gov" in url or "gov.kr" in url or "go.kr" in url:
-                    government_sources += 1
-            
             # Calculate duplicate ratio
-            original_count = len(search_results)
-            final_count = state.get("deduplicated_count", original_count)
-            duplicate_ratio = (original_count - final_count) / original_count if original_count > 0 else 0
-            
-            # Calculate average source quality
-            avg_quality = calculate_average_quality(search_results)
-            
-            # Categorize sources
-            source_categories = categorize_sources(search_results)
+            extracted_count = len(state.get("extracted_facts", []))
+            validated_count = len(facts)
+            duplicate_ratio = (extracted_count - validated_count) / extracted_count if extracted_count > 0 else 0
             
             # Reflection criteria
             criteria = {
+                "validated_facts": validated_count,
                 "unique_organizations": len(unique_organizations),
-                "government_sources": government_sources,
+                "government_organizations": government_organizations,
                 "international_cases": international_cases,
                 "implementation_examples": implementation_examples,
                 "duplicate_ratio": duplicate_ratio,
-                "average_quality": avg_quality,
                 "reflection_count": reflection_count,
             }
             
@@ -84,8 +77,9 @@ def evaluate_research_quality(state: ResearchState, settings: Settings) -> dict[
             
             # Determine if additional research is needed
             needs_research = (
-                len(unique_organizations) < 8
-                or government_sources < 5
+                validated_count < 5
+                or len(unique_organizations) < 5
+                or government_organizations < 5
                 or international_cases == 0
                 or implementation_examples < 5
                 or duplicate_ratio > 0.3

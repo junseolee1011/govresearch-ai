@@ -13,9 +13,11 @@ from agents.report_writer import make_write_report
 from agents.researcher import conduct_research
 from agents.retriever import retrieve_documents, should_search_web
 from agents.summarizer import make_summarize_findings
+from agents.validator import make_validate_facts
 from app.state import ResearchState
 from config.settings import Settings
 from tools.deduplicator import deduplicate_sources
+from tools.search_normalizer import normalize_search_results
 from tools.source_ranker import filter_by_quality
 
 
@@ -76,6 +78,12 @@ def build_research_graph(settings: Settings) -> object:
         
         return {"stored_documents_count": added_count}
 
+    def normalizer_node(state: ResearchState) -> dict[str, object]:
+        """Normalize search results."""
+        search_results = state.get("search_results", [])
+        normalized = normalize_search_results(search_results)
+        return {"normalized_results": normalized, "search_results": normalized}
+
     def source_ranker_node(state: ResearchState) -> dict[str, object]:
         """Filter and rank sources by quality."""
         search_results = state.get("search_results", [])
@@ -99,6 +107,11 @@ def build_research_graph(settings: Settings) -> object:
         """Extract structured facts from documents."""
         extract_facts = make_extract_facts(settings)
         return extract_facts(state)
+
+    def validator_node(state: ResearchState) -> dict[str, object]:
+        """Validate extracted facts."""
+        validate_facts = make_validate_facts(settings)
+        return validate_facts(state)
 
     def reflection_node(state: ResearchState) -> dict[str, object]:
         """Evaluate research quality."""
@@ -124,9 +137,11 @@ def build_research_graph(settings: Settings) -> object:
     workflow.add_node("retriever", retriever_node)
     workflow.add_node("researcher", researcher_node)
     workflow.add_node("store", store_node)
+    workflow.add_node("normalizer", normalizer_node)
     workflow.add_node("source_ranker", source_ranker_node)
     workflow.add_node("deduplicator", deduplicator_node)
     workflow.add_node("fact_extractor", fact_extractor_node)
+    workflow.add_node("validator", validator_node)
     workflow.add_node("reflection", reflection_node)
     workflow.add_node("summarizer", summarizer_node)
     workflow.add_node("report_writer", report_writer_node)
@@ -146,10 +161,12 @@ def build_research_graph(settings: Settings) -> object:
     )
     
     workflow.add_edge("researcher", "store")
-    workflow.add_edge("store", "source_ranker")
+    workflow.add_edge("store", "normalizer")
+    workflow.add_edge("normalizer", "source_ranker")
     workflow.add_edge("source_ranker", "deduplicator")
     workflow.add_edge("deduplicator", "fact_extractor")
-    workflow.add_edge("fact_extractor", "reflection")
+    workflow.add_edge("fact_extractor", "validator")
+    workflow.add_edge("validator", "reflection")
     
     # Conditional edge: decide whether to research again based on reflection
     workflow.add_conditional_edges(
