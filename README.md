@@ -3,23 +3,27 @@
 GovResearch-AI is an autonomous, multi-agent research workflow for identifying
 and classifying AI services used by public institutions. It plans a research
 task, performs web searches via Tavily, summarizes findings using local Ollama LLM,
-and produces a structured Markdown report. Sprint 4 adds Retrieval-Augmented Generation (RAG)
-with ChromaDB for intelligent document caching and retrieval.
+and produces a structured Markdown report. Sprint 5 adds Research Quality & Reflection Agent
+for professional-grade research reports.
 
 ## Features
 
-- LangGraph `StateGraph` workflow: Planner → Retriever → Decision → Research → Store → Summarizer → Report
+- LangGraph `StateGraph` workflow: Planner → Retriever → Decision → Research → Store → Source Ranker → Deduplicator → Fact Extractor → Reflection → Summarizer → Report
 - **RAG with ChromaDB**: Intelligent document caching and semantic retrieval
 - **Embedding model**: BAAI/bge-small-en-v1.5 for semantic similarity search
 - **Conditional workflow**: Skips web search if sufficient relevant documents found in cache
+- **Reflection Agent**: Evaluates research quality and triggers additional research if needed
+- **Source Ranking**: Filters and ranks sources by quality (1-5 stars)
+- **Deduplication**: Removes duplicates using URL, title, and content similarity (RapidFuzz)
+- **Fact Extraction**: Structured JSON extraction from documents
+- **Search Optimization**: Domain preferences for high-quality sources (gov, edu, ac)
 - Tavily web search integration for real-time research data
 - Ollama integration for local LLM inference (qwen3:8b default, llama3.1:8b supported)
 - Source classification: Government, Research, News, Other
 - Typed, shared workflow state
 - File-based prompts with variable substitution
 - Structured logging with execution timing and response metrics
-- AI service inventory: institution, service type, use case, and maturity
-- Professional Markdown report generation with RAG-specific sections
+- Professional Markdown report generation with citations and source statistics
 
 ## Requirements
 
@@ -28,6 +32,7 @@ with ChromaDB for intelligent document caching and retrieval.
 - Tavily API key (free tier available at https://tavily.com)
 - ChromaDB (vector database, installed via pip)
 - sentence-transformers (embedding model, installed via pip)
+- rapidfuzz (duplicate detection, installed via pip)
 
 ## Installation
 
@@ -234,6 +239,94 @@ Planner → Retriever → Decision → [Research → Store] → Summarizer → R
 - `retrieved_documents`: List of documents retrieved from ChromaDB
 - `cache_hit`: Boolean indicating if sufficient documents were found
 - `stored_documents_count`: Number of documents stored in ChromaDB
+
+## Sprint 5 Implementation
+
+### Research Quality Pipeline
+
+- **Reflection Agent**: Evaluates research quality and triggers additional research
+- **Source Ranking**: Filters sources by quality (1-5 stars)
+- **Deduplication**: Removes duplicates using RapidFuzz (URL, title, content)
+- **Fact Extraction**: Structured JSON extraction from documents
+- **Search Optimization**: Domain preferences for high-quality sources
+
+### Reflection Criteria
+
+Automatically triggers additional search if:
+- Less than 8 unique organizations
+- Government sources < 5
+- International cases == 0
+- Implementation examples < 5
+- Duplicate ratio > 30%
+
+Maximum reflection loop: 2 (prevents infinite loops)
+
+### Source Quality Ranking
+
+- **5 stars**: Government, Official Public Institution, Research Institute, Peer-reviewed Paper
+- **4 stars**: University, Large Consulting Firm, International Organization
+- **3 stars**: News, Industry Report
+- **2 stars**: Corporate Blog, Medium
+- **1 star**: Wikipedia, Personal Blog, Forum
+
+### Fact Extraction
+
+Extracts structured JSON from each document:
+```json
+{
+    "organization": "...",
+    "service_name": "...",
+    "country": "...",
+    "service_type": "...",
+    "llm": "...",
+    "rag": true,
+    "launch_year": "...",
+    "purpose": "...",
+    "benefit": "...",
+    "source_url": "...",
+    "source_quality": 5
+}
+```
+
+### New Components
+
+- **agents/reflection.py**: Research quality evaluation agent
+- **tools/source_ranker.py**: Source quality ranking (1-5 stars)
+- **tools/deduplicator.py**: Duplicate removal using RapidFuzz
+- **agents/fact_extractor.py**: Structured fact extraction
+- **Updated tools/tavily_search.py**: Domain preferences for search
+
+### Enhanced Report Structure
+
+- Executive Summary
+- Research Objective
+- Methodology
+- Search Strategy
+- Organization Inventory
+- Domestic Cases
+- International Cases
+- Technology Stack
+- Source Statistics
+- Implementation Patterns
+- Key Findings
+- Recommendations
+- Limitations
+- References (numbered citations)
+
+### Updated Workflow
+
+```
+Planner → Retriever → Decision → [Research → Store → Source Ranker → Deduplicator → Fact Extractor → Reflection] → Summarizer → Report Writer
+```
+
+### State Extensions
+
+- `extracted_facts`: List of structured fact dictionaries
+- `deduplicated_results`: Deduplicated search results
+- `deduplicated_count`: Count after deduplication
+- `reflection_decision`: Decision from reflection agent
+- `reflection_metrics`: Quality metrics from reflection
+- `reflection_count`: Number of reflection iterations
 
 ## Testing
 

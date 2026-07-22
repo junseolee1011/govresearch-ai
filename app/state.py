@@ -20,6 +20,12 @@ class ResearchState(TypedDict, total=False):
         retrieved_documents: Documents retrieved from vector store.
         cache_hit: Whether relevant documents were found in cache.
         stored_documents_count: Number of documents stored in vector store.
+        extracted_facts: Structured facts extracted from documents.
+        deduplicated_results: Deduplicated search results.
+        deduplicated_count: Count after deduplication.
+        reflection_decision: Decision from reflection agent.
+        reflection_metrics: Quality metrics from reflection.
+        reflection_count: Number of reflection iterations.
     """
 
     topic: str
@@ -33,3 +39,9 @@ class ResearchState(TypedDict, total=False):
     retrieved_documents: list[dict]
     cache_hit: bool
     stored_documents_count: int
+    extracted_facts: list[dict]
+    deduplicated_results: list[dict]
+    deduplicated_count: int
+    reflection_decision: str
+    reflection_metrics: dict
+    reflection_count: int

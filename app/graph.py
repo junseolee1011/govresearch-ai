@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
+import logging
+
 from langgraph.graph import END, START, StateGraph
 
+from agents.fact_extractor import make_extract_facts
 from agents.planner import plan_research
+from agents.reflection import make_reflect, should_research_again
 from agents.report_writer import make_write_report
 from agents.researcher import conduct_research
 from agents.retriever import retrieve_documents, should_search_web
 from agents.summarizer import make_summarize_findings
 from app.state import ResearchState
 from config.settings import Settings
+from tools.deduplicator import deduplicate_sources
+from tools.source_ranker import filter_by_quality
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def build_research_graph(settings: Settings) -> object:
-    """Build the RAG-enabled research workflow graph.
+    """Build the research quality workflow graph.
 
     Args:
         settings: Application settings with Ollama and RAG configuration.
@@ -43,9 +52,6 @@ def build_research_graph(settings: Settings) -> object:
         """Store new research results in vector store."""
         from tools.vector_store import VectorStore
         from models.document import Document
-        import logging
-        
-        LOGGER = logging.getLogger(__name__)
         
         vector_store = VectorStore(settings)
         
@@ -70,6 +76,39 @@ def build_research_graph(settings: Settings) -> object:
         
         return {"stored_documents_count": added_count}
 
+    def source_ranker_node(state: ResearchState) -> dict[str, object]:
+        """Filter and rank sources by quality."""
+        search_results = state.get("search_results", [])
+        filtered = filter_by_quality(search_results, min_quality=3)
+        LOGGER.info(f"Source ranking: {len(search_results)} -> {len(filtered)} high-quality sources")
+        return {"search_results": filtered}
+
+    def deduplicator_node(state: ResearchState) -> dict[str, object]:
+        """Remove duplicate sources."""
+        search_results = state.get("search_results", [])
+        original_count = len(search_results)
+        deduplicated = deduplicate_sources(search_results, threshold=90)
+        LOGGER.info(f"Deduplication: {original_count} -> {len(deduplicated)} unique sources")
+        return {
+            "deduplicated_results": deduplicated,
+            "deduplicated_count": len(deduplicated),
+            "search_results": deduplicated,
+        }
+
+    def fact_extractor_node(state: ResearchState) -> dict[str, object]:
+        """Extract structured facts from documents."""
+        extract_facts = make_extract_facts(settings)
+        return extract_facts(state)
+
+    def reflection_node(state: ResearchState) -> dict[str, object]:
+        """Evaluate research quality."""
+        reflect = make_reflect(settings)
+        return reflect(state)
+
+    def reflection_decision_node(state: ResearchState) -> str:
+        """Decide whether to research again based on reflection."""
+        return should_research_again(state)
+
     def summarizer_node(state: ResearchState) -> dict[str, str]:
         """Wrapper for summarizer to inject settings."""
         summarize_findings = make_summarize_findings(settings)
@@ -85,6 +124,10 @@ def build_research_graph(settings: Settings) -> object:
     workflow.add_node("retriever", retriever_node)
     workflow.add_node("researcher", researcher_node)
     workflow.add_node("store", store_node)
+    workflow.add_node("source_ranker", source_ranker_node)
+    workflow.add_node("deduplicator", deduplicator_node)
+    workflow.add_node("fact_extractor", fact_extractor_node)
+    workflow.add_node("reflection", reflection_node)
     workflow.add_node("summarizer", summarizer_node)
     workflow.add_node("report_writer", report_writer_node)
     
@@ -103,7 +146,21 @@ def build_research_graph(settings: Settings) -> object:
     )
     
     workflow.add_edge("researcher", "store")
-    workflow.add_edge("store", "summarizer")
+    workflow.add_edge("store", "source_ranker")
+    workflow.add_edge("source_ranker", "deduplicator")
+    workflow.add_edge("deduplicator", "fact_extractor")
+    workflow.add_edge("fact_extractor", "reflection")
+    
+    # Conditional edge: decide whether to research again based on reflection
+    workflow.add_conditional_edges(
+        "reflection",
+        reflection_decision_node,
+        {
+            "research_again": "researcher",
+            "continue": "summarizer",
+        },
+    )
+    
     workflow.add_edge("summarizer", "report_writer")
     workflow.add_edge("report_writer", END)
     

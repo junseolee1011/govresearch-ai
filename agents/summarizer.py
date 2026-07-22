@@ -25,10 +25,10 @@ def make_summarize_findings(settings: Settings):
     """
 
     def summarize_findings(state: ResearchState) -> dict[str, str]:
-        """Generate a concise research summary using Ollama with RAG.
+        """Generate a concise research summary using extracted facts.
 
         Args:
-            state: Workflow state with search results and retrieved documents.
+            state: Workflow state with extracted facts and retrieved documents.
 
         Returns:
             State update containing the generated summary.
@@ -52,42 +52,56 @@ def make_summarize_findings(settings: Settings):
                     retrieved_context = "검색된 지식이 없습니다."
                     LOGGER.info("No retrieved documents available")
 
-                # Extract content from search results
-                search_results = state.get("search_results", [])
-                if not search_results:
-                    summary = "검색 결과가 없습니다."
-                    LOGGER.warning("No search results to summarize")
+                # Extract structured facts
+                facts = state.get("extracted_facts", [])
+                if not facts:
+                    summary = "추출된 팩트가 없습니다."
+                    LOGGER.warning("No facts to summarize")
                     return {"search_summary": summary}
 
-                # Build context from search results
-                content_snippets = []
-                for result in search_results[:10]:  # Limit to top 10 results
-                    title = result.get("title", "")
-                    content = result.get("content", "")
-                    source_type = result.get("source_type", "")
-                    snippet = f"[{source_type}] {title}: {content[:200]}"
-                    content_snippets.append(snippet)
+                # Build facts summary
+                facts_text = ""
+                for fact in facts[:10]:  # Limit to top 10 facts
+                    org = fact.get("organization", "알 수 없음")
+                    service = fact.get("service_name", "알 수 없음")
+                    country = fact.get("country", "알 수 없음")
+                    service_type = fact.get("service_type", "알 수 없음")
+                    purpose = fact.get("purpose", "")
+                    facts_text += f"- {org} ({country}): {service} ({service_type}) - {purpose[:100]}\n"
 
-                search_results_text = "\n".join(content_snippets)
                 topic = state.get("topic", "연구 주제")
 
-                # Use prompt template for summarization
-                prompt = render_prompt(
-                    "summarizer.txt",
-                    topic=topic,
-                    retrieved_context=retrieved_context,
-                    search_results=search_results_text,
-                )
+                # Generate summary from facts
+                prompt = f"""다음 추출된 구조화된 팩트를 바탕으로 연구 주제에 대한 통합 요약을 작성하세요.
+
+연구 주제: {topic}
+
+검색된 지식 (Retrieved Context):
+{retrieved_context}
+
+추출된 팩트 (Extracted Facts):
+{facts_text}
+
+요약은 다음 내용을 포함해야 합니다:
+- 주요 조직 및 서비스 현황
+- 서비스 유형별 분포
+- 국내외 사례 비교
+- 공통 구현 패턴
+- 기술 트렌드
+- 성공 요인
+
+요약은 한국어로 작성하고 3-5문단으로 구성하세요."""
 
                 LOGGER.debug("Summarizer prompt length: %d characters", len(prompt))
 
                 summary = llm.invoke(prompt)
                 metrics["response_length"] = len(summary)
+                metrics["fact_count"] = len(facts)
 
                 LOGGER.info(
-                    "Summarizer generated summary (%d characters) from %d search results and %d retrieved documents",
+                    "Summarizer generated summary (%d characters) from %d facts and %d retrieved documents",
                     len(summary),
-                    len(search_results),
+                    len(facts),
                     len(retrieved_docs),
                 )
                 return {"search_summary": summary}

@@ -80,12 +80,33 @@ def search_web(query: str, settings: Settings) -> dict:
         client = TavilyClient(api_key=settings.tavily_api_key)
         LOGGER.info("Tavily search started: query='%s', max_results=%d", query, settings.search_max_results)
 
+        # Domain preferences for high-quality sources
+        include_domains = [
+            "gov.kr", "go.kr", "or.kr", "ac.kr", "edu",
+            "spr.or.kr", "nia.or.kr", "kisa.or.kr",
+            "msit.go.kr", "mois.go.kr",
+            "oecd.org", "gov.uk", "govtech.sg",
+            "usa.gov", "gov.sg", "gouv.fr"
+        ]
+        
+        # Exclude low-quality domains
+        exclude_domains = [
+            "wikipedia.org",
+            "blogspot.com",
+            "wordpress.com",
+            "reddit.com",
+            "quora.com",
+            "youtube.com"
+        ]
+
         response = client.search(
             query=query,
             max_results=settings.search_max_results,
             search_depth="basic",
             include_answer=False,
             include_raw_content=False,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
         )
 
         LOGGER.info("Tavily search completed: %d results returned", len(response.get("results", [])))
