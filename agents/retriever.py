@@ -48,8 +48,22 @@ def retrieve_documents(state: ResearchState, settings: Settings) -> dict[str, ob
     else:
         LOGGER.info("No relevant documents found in vector store (cache miss)")
     
+    # Convert Document objects to search_results schema for downstream processing
+    converted_results = []
+    for doc in retrieved_docs:
+        converted_results.append({
+            "title": doc.title,
+            "url": doc.url,
+            "content": doc.content,
+            "source_type": doc.source_type,
+        })
+    
+    LOGGER.info(f"Converted {len(converted_results)} documents to search_results schema")
+    LOGGER.info(f"search_results length after Retriever: {len(converted_results)}")
+    
     return {
         "retrieved_documents": retrieved_docs,
+        "search_results": converted_results,
         "cache_hit": len(retrieved_docs) > 0,
     }
 

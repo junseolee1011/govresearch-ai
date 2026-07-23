@@ -150,13 +150,14 @@ def build_research_graph(settings: Settings) -> object:
     workflow.add_edge(START, "planner")
     workflow.add_edge("planner", "retriever")
     
-    # Conditional edge: decide whether to search web or skip to summarizer
+    # Conditional edge: decide whether to search web or skip to normalizer
+    # Cache hits skip only web search, but still go through full processing pipeline
     workflow.add_conditional_edges(
         "retriever",
         decision_node,
         {
             "search": "researcher",
-            "skip": "summarizer",
+            "skip": "normalizer",
         },
     )
     

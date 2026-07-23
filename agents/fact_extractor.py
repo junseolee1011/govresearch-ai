@@ -218,6 +218,8 @@ def make_extract_facts(settings: Settings):
                 llm = get_llm(settings)
                 
                 search_results = state.get("search_results", [])
+                LOGGER.info(f"Fact Extractor receives {len(search_results)} documents")
+                
                 if not search_results:
                     LOGGER.warning("No search results to extract facts from")
                     return {"extracted_facts": []}

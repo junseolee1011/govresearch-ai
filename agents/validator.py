@@ -129,6 +129,8 @@ def make_validate_facts(settings: Settings):
         with log_node_execution("validator") as metrics:
             try:
                 facts = state.get("extracted_facts", [])
+                LOGGER.info(f"Validator receives {len(facts)} facts")
+                
                 if not facts:
                     LOGGER.warning("No facts to validate")
                     return {"validated_facts": [], "rejected_facts": []}
