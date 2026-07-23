@@ -14,40 +14,32 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 
 
-def validate_fact(fact: dict) -> bool:
+def validate_fact(fact: dict) -> tuple[bool, str]:
     """Validate a single fact.
     
     Args:
         fact: Fact dictionary to validate.
         
     Returns:
-        True if valid, False otherwise.
+        Tuple of (is_valid, rejection_reason).
     """
-    # Required fields must not be null
+    # Required fields: organization and source_url only
     if not fact.get("organization"):
-        LOGGER.debug("Rejected fact: missing organization")
-        return False
+        return False, "missing organization"
     
     if not fact.get("source_url"):
-        LOGGER.debug("Rejected fact: missing source_url")
-        return False
-    
-    if not fact.get("service_name"):
-        LOGGER.debug("Rejected fact: missing service_name")
-        return False
+        return False, "missing source_url"
     
     # Validate URL format
     try:
         from urllib.parse import urlparse
         parsed = urlparse(fact["source_url"])
         if not parsed.scheme or not parsed.netloc:
-            LOGGER.debug(f"Rejected fact: invalid URL {fact['source_url']}")
-            return False
-    except Exception:
-        LOGGER.debug(f"Rejected fact: invalid URL {fact['source_url']}")
-        return False
+            return False, f"invalid URL format: {fact['source_url']}"
+    except Exception as e:
+        return False, f"invalid URL parsing: {str(e)}"
     
-    return True
+    return True, ""
 
 
 def validate_facts(facts: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -67,14 +59,20 @@ def validate_facts(facts: list[dict]) -> tuple[list[dict], list[dict]]:
     
     for fact in facts:
         # Validate required fields
-        if not validate_fact(fact):
+        is_valid, reason = validate_fact(fact)
+        if not is_valid:
+            org = fact.get("organization", "unknown")
+            url = fact.get("source_url", "unknown")
+            LOGGER.warning(f"Rejected fact from {org} ({url}): {reason}")
             rejected.append(fact)
             continue
         
-        # Check for duplicates (organization + service_name)
-        key = (fact["organization"], fact["service_name"])
+        # Check for duplicates (organization + source_url)
+        key = (fact["organization"], fact["source_url"])
         if key in seen:
-            LOGGER.debug(f"Rejected duplicate fact: {fact['organization']} - {fact['service_name']}")
+            org = fact.get("organization", "unknown")
+            url = fact.get("source_url", "unknown")
+            LOGGER.warning(f"Rejected duplicate fact: {org} ({url})")
             rejected.append(fact)
             continue
         

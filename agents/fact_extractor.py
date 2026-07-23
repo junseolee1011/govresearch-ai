@@ -1,4 +1,4 @@
-"""Fact extraction agent for structured data extraction."""
+"""Fact extraction agent for structured data extraction with two-stage pipeline."""
 
 import json
 import logging
@@ -17,51 +17,40 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 
 
-def extract_facts_from_document(doc: dict, llm) -> dict:
-    """Extract structured facts from a single document with strict rules.
+def extract_basic_facts(doc: dict, llm) -> dict:
+    """Stage 1: Extract basic facts (organization, service_name, source_url).
     
     Args:
         doc: Document dictionary with title, url, content.
         llm: Ollama LLM instance.
         
     Returns:
-        Structured fact dictionary with null for unknown values.
+        Basic fact dictionary.
     """
     title = doc.get("title", "")
     url = doc.get("url", "")
     content = doc.get("content", "")
     source_quality = rank_source(url)
     
-    prompt = f"""Extract structured information from the following document about an AI service used by a public institution.
+    prompt = f"""Extract the following basic information from the document about an AI service used by a public institution.
 
 Document Title: {title}
 URL: {url}
 Content: {content[:1500]}
 
-Extract the following fields as JSON. Use null if information is not available. Do not invent values. Do not infer missing information.
+Extract these fields as JSON. Use null if not found. Do not invent values.
 
 Required fields:
-- organization: Name of the organization/institution (null if not found)
-- country: Country where the service is deployed (null if not found)
-- service_name: Name of the AI service (null if not found)
-- service_type: Type of AI service (null if not found)
-- technology: Technology stack used (null if not found)
-- llm_model: LLM model used (null if not found)
-- rag: Boolean indicating if RAG is used (null if not found)
-- launch_year: Year of launch (null if not found)
-- purpose: Purpose of the AI service (null if not found)
-- benefits: List of benefits (empty array if not found)
-- limitations: List of limitations (empty array if not found)
-- source_url: URL of the source
+- organization: Name of the organization/institution
+- service_name: Name of the AI service
+- source_url: URL of the source (use the provided URL)
 - source_title: Title of the source
-- source_quality: Quality score (1-5)
 
 Return only valid JSON, nothing else."""
 
     try:
         response = llm.invoke(prompt)
         
-        # Try to parse JSON from response
         json_start = response.find("{")
         json_end = response.rfind("}") + 1
         
@@ -69,11 +58,78 @@ Return only valid JSON, nothing else."""
             json_str = response[json_start:json_end]
             facts = json.loads(json_str)
         else:
-            # Fallback: create minimal fact structure with nulls
             facts = {
                 "organization": None,
-                "country": None,
                 "service_name": None,
+                "source_url": url,
+                "source_title": title,
+            }
+        
+        facts.setdefault("organization", None)
+        facts.setdefault("service_name", None)
+        facts["source_url"] = url
+        facts["source_title"] = title
+        facts["source_quality"] = source_quality
+        
+        return facts
+        
+    except Exception as e:
+        LOGGER.error(f"Failed to extract basic facts from {title}: {e}")
+        return {
+            "organization": None,
+            "service_name": None,
+            "source_url": url,
+            "source_title": title,
+            "source_quality": source_quality,
+        }
+
+
+def enrich_facts(basic_facts: dict, doc: dict, llm) -> dict:
+    """Stage 2: Enrich facts with technology, RAG, launch year, benefits.
+    
+    Args:
+        basic_facts: Basic fact dictionary from stage 1.
+        doc: Original document dictionary.
+        llm: Ollama LLM instance.
+        
+    Returns:
+        Enriched fact dictionary.
+    """
+    title = doc.get("title", "")
+    content = doc.get("content", "")
+    
+    prompt = f"""Extract additional technical details from the following document.
+
+Document Title: {title}
+Content: {content[:1500]}
+
+Extract these fields as JSON. Use null if not found. Use empty array [] if not found. Do not invent values.
+
+Fields:
+- country: Country where the service is deployed
+- service_type: Type of AI service
+- technology: Technology stack used
+- llm_model: LLM model used
+- rag: Boolean indicating if RAG is used
+- launch_year: Year of launch
+- purpose: Purpose of the AI service
+- benefits: List of benefits
+- limitations: List of limitations
+
+Return only valid JSON, nothing else."""
+
+    try:
+        response = llm.invoke(prompt)
+        
+        json_start = response.find("{")
+        json_end = response.rfind("}") + 1
+        
+        if json_start >= 0 and json_end > json_start:
+            json_str = response[json_start:json_end]
+            enrichment = json.loads(json_str)
+        else:
+            enrichment = {
+                "country": None,
                 "service_type": None,
                 "technology": None,
                 "llm_model": None,
@@ -82,50 +138,36 @@ Return only valid JSON, nothing else."""
                 "purpose": None,
                 "benefits": [],
                 "limitations": [],
-                "source_url": url,
-                "source_title": title,
-                "source_quality": source_quality,
             }
         
-        # Ensure required fields exist with null defaults
-        facts.setdefault("organization", None)
-        facts.setdefault("country", None)
-        facts.setdefault("service_name", None)
-        facts.setdefault("service_type", None)
-        facts.setdefault("technology", None)
-        facts.setdefault("llm_model", None)
-        facts.setdefault("rag", None)
-        facts.setdefault("launch_year", None)
-        facts.setdefault("purpose", None)
-        facts.setdefault("benefits", [])
-        facts.setdefault("limitations", [])
+        # Merge with basic facts
+        basic_facts.update(enrichment)
         
-        # Set source fields
-        facts["source_url"] = url
-        facts["source_title"] = title
-        facts["source_quality"] = source_quality
-        
-        return facts
+        return basic_facts
         
     except Exception as e:
-        LOGGER.error(f"Failed to extract facts from {title}: {e}")
-        # Return minimal structure with nulls on error
-        return {
-            "organization": None,
-            "country": None,
-            "service_name": None,
-            "service_type": None,
-            "technology": None,
-            "llm_model": None,
-            "rag": None,
-            "launch_year": None,
-            "purpose": None,
-            "benefits": [],
-            "limitations": [],
-            "source_url": url,
-            "source_title": title,
-            "source_quality": source_quality,
-        }
+        LOGGER.error(f"Failed to enrich facts from {title}: {e}")
+        # Return basic facts without enrichment
+        return basic_facts
+
+
+def extract_facts_from_document(doc: dict, llm) -> dict:
+    """Extract structured facts from a single document using two-stage pipeline.
+    
+    Args:
+        doc: Document dictionary with title, url, content.
+        llm: Ollama LLM instance.
+        
+    Returns:
+        Structured fact dictionary.
+    """
+    # Stage 1: Extract basic facts
+    basic_facts = extract_basic_facts(doc, llm)
+    
+    # Stage 2: Enrich with technical details
+    enriched_facts = enrich_facts(basic_facts, doc, llm)
+    
+    return enriched_facts
 
 
 def make_extract_facts(settings: Settings):
