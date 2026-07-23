@@ -51,12 +51,36 @@ Return only valid JSON, nothing else."""
     try:
         response = llm.invoke(prompt)
         
+        # Stage 3 Debug: Raw LLM response
+        print("\n========================")
+        print("Stage 3")
+        print("========================")
+        print(f"Document: {title}")
+        print(f"Raw LLM Response:")
+        print(response)
+        print("========================\n")
+        
         json_start = response.find("{")
         json_end = response.rfind("}") + 1
         
         if json_start >= 0 and json_end > json_start:
             json_str = response[json_start:json_end]
-            facts = json.loads(json_str)
+            try:
+                facts = json.loads(json_str)
+            except json.JSONDecodeError as e:
+                # Stage 4 Debug: JSON parsing error
+                print("\n========================")
+                print("Stage 4")
+                print("========================")
+                print(f"JSON Parsing Error: {e}")
+                print(f"JSON String: {json_str}")
+                print("========================\n")
+                facts = {
+                    "organization": None,
+                    "service_name": None,
+                    "source_url": url,
+                    "source_title": title,
+                }
         else:
             facts = {
                 "organization": None,
@@ -205,6 +229,19 @@ def make_extract_facts(settings: Settings):
                 
                 metrics["fact_count"] = len(facts)
                 LOGGER.info(f"Extracted {len(facts)} facts from {len(search_results)} documents")
+                
+                # Stage 5 Debug: Every extracted fact before validation
+                print("\n========================")
+                print("Stage 5")
+                print("========================")
+                print(f"Extracted facts ({len(facts)} total):")
+                for i, fact in enumerate(facts, 1):
+                    print(f"\nFact {i}:")
+                    print(f"  Organization: {fact.get('organization', 'N/A')}")
+                    print(f"  Service Name: {fact.get('service_name', 'N/A')}")
+                    print(f"  Source URL: {fact.get('source_url', 'N/A')}")
+                    print(f"  Source Title: {fact.get('source_title', 'N/A')}")
+                print("========================\n")
                 
                 return {"extracted_facts": facts}
                 

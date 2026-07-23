@@ -147,4 +147,18 @@ def normalize_search_results(results: list[dict]) -> list[dict]:
             rejected += 1
     
     LOGGER.info(f"Normalized {len(normalized)} results, rejected {rejected} malformed results")
+    
+    # Stage 2 Debug: Normalized results
+    print("\n========================")
+    print("Stage 2")
+    print("========================")
+    print(f"Number of normalized results: {len(normalized)}")
+    if normalized:
+        print("\nFirst normalized object:")
+        print(f"  Title: {normalized[0].get('title', 'N/A')}")
+        print(f"  URL: {normalized[0].get('url', 'N/A')}")
+        print(f"  Domain: {normalized[0].get('domain', 'N/A')}")
+        print(f"  Source Type: {normalized[0].get('source_type', 'N/A')}")
+    print("========================\n")
+    
     return normalized

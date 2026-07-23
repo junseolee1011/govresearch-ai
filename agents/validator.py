@@ -57,6 +57,12 @@ def validate_facts(facts: list[dict]) -> tuple[list[dict], list[dict]]:
     # Track seen combinations to detect duplicates
     seen = set()
     
+    # Stage 6 Debug: Every rejected fact with reason
+    print("\n========================")
+    print("Stage 6")
+    print("========================")
+    print("Rejected facts:")
+    
     for fact in facts:
         # Validate required fields
         is_valid, reason = validate_fact(fact)
@@ -64,6 +70,9 @@ def validate_facts(facts: list[dict]) -> tuple[list[dict], list[dict]]:
             org = fact.get("organization", "unknown")
             url = fact.get("source_url", "unknown")
             LOGGER.warning(f"Rejected fact from {org} ({url}): {reason}")
+            print(f"Rejected: {reason}")
+            print(f"  Organization: {org}")
+            print(f"  URL: {url}")
             rejected.append(fact)
             continue
         
@@ -73,13 +82,28 @@ def validate_facts(facts: list[dict]) -> tuple[list[dict], list[dict]]:
             org = fact.get("organization", "unknown")
             url = fact.get("source_url", "unknown")
             LOGGER.warning(f"Rejected duplicate fact: {org} ({url})")
+            print(f"Rejected: duplicate")
+            print(f"  Organization: {org}")
+            print(f"  URL: {url}")
             rejected.append(fact)
             continue
         
         seen.add(key)
         validated.append(fact)
     
+    print("========================\n")
+    
     LOGGER.info(f"Validated {len(validated)} facts, rejected {len(rejected)} facts")
+    
+    # Stage 7 Debug: Summary counts
+    print("\n========================")
+    print("Stage 7")
+    print("========================")
+    print(f"Extracted facts: {len(facts)}")
+    print(f"Validated facts: {len(validated)}")
+    print(f"Rejected facts: {len(rejected)}")
+    print("========================\n")
+    
     return validated, rejected
 
 

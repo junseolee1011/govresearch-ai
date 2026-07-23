@@ -70,6 +70,19 @@ def conduct_research(state: ResearchState, settings: Settings) -> dict[str, obje
 
     duplicates_removed = len(all_results) - len(unique_results)
     LOGGER.info("Removed %d duplicate URLs, %d unique results remain", duplicates_removed, len(unique_results))
+    
+    # Stage 1 Debug: Tavily results
+    print("\n========================")
+    print("Stage 1")
+    print("========================")
+    print(f"Number of Tavily results: {len(unique_results)}")
+    print("\nFirst 3 results:")
+    for i, result in enumerate(unique_results[:3], 1):
+        print(f"\nResult {i}:")
+        print(f"  Title: {result.get('title', 'N/A')}")
+        print(f"  URL: {result.get('url', 'N/A')}")
+        print(f"  Content: {result.get('content', 'N/A')[:200]}...")
+    print("========================\n")
 
     # Log source breakdown
     source_breakdown = {}
