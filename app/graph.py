@@ -16,6 +16,7 @@ from agents.summarizer import make_summarize_findings
 from agents.validator import make_validate_facts
 from app.state import ResearchState
 from config.settings import Settings
+from tools.content_enricher import enrich_search_results
 from tools.deduplicator import deduplicate_sources
 from tools.search_normalizer import normalize_search_results
 from tools.source_ranker import filter_by_quality
@@ -103,6 +104,14 @@ def build_research_graph(settings: Settings) -> object:
             "search_results": deduplicated,
         }
 
+    def content_enricher_node(state: ResearchState) -> dict[str, object]:
+        """Enrich search results with full webpage content."""
+        search_results = state.get("search_results", [])
+        original_count = len(search_results)
+        enriched = enrich_search_results(search_results, min_length=300)
+        LOGGER.info(f"Content enrichment: {original_count} -> {len(enriched)} documents with sufficient content")
+        return {"search_results": enriched}
+
     def fact_extractor_node(state: ResearchState) -> dict[str, object]:
         """Extract structured facts from documents."""
         extract_facts = make_extract_facts(settings)
@@ -140,6 +149,7 @@ def build_research_graph(settings: Settings) -> object:
     workflow.add_node("normalizer", normalizer_node)
     workflow.add_node("source_ranker", source_ranker_node)
     workflow.add_node("deduplicator", deduplicator_node)
+    workflow.add_node("content_enricher", content_enricher_node)
     workflow.add_node("fact_extractor", fact_extractor_node)
     workflow.add_node("validator", validator_node)
     workflow.add_node("reflection", reflection_node)
@@ -165,7 +175,8 @@ def build_research_graph(settings: Settings) -> object:
     workflow.add_edge("store", "normalizer")
     workflow.add_edge("normalizer", "source_ranker")
     workflow.add_edge("source_ranker", "deduplicator")
-    workflow.add_edge("deduplicator", "fact_extractor")
+    workflow.add_edge("deduplicator", "content_enricher")
+    workflow.add_edge("content_enricher", "fact_extractor")
     workflow.add_edge("fact_extractor", "validator")
     workflow.add_edge("validator", "reflection")
     
