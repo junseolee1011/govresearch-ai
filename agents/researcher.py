@@ -81,6 +81,7 @@ def conduct_research(state: ResearchState, settings: Settings) -> dict[str, obje
         print(f"\nResult {i}:")
         print(f"  Title: {result.get('title', 'N/A')}")
         print(f"  URL: {result.get('url', 'N/A')}")
+        print(f"  Content Length: {len(result.get('content', ''))}")
         print(f"  Content: {result.get('content', 'N/A')[:200]}...")
     print("========================\n")
 

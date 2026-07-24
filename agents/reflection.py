@@ -67,13 +67,9 @@ def evaluate_research_quality(state: ResearchState, settings: Settings) -> dict[
             LOGGER.info(f"Research quality metrics: {criteria}")
             metrics.update(criteria)
             
-            # Determine if additional research is needed (relaxed criteria)
-            needs_research = (
-                validated_count < 3
-                or len(unique_organizations) < 2
-                or government_organizations < 2
-                or duplicate_ratio > 0.5
-            )
+            # Determine if additional research is needed (very relaxed criteria)
+            # Only trigger research if we have absolutely no valid facts
+            needs_research = validated_count == 0
             
             # Check reflection loop limit (reduced to prevent infinite loops)
             if reflection_count >= 1:

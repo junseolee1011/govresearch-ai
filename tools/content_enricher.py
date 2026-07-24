@@ -26,12 +26,17 @@ def extract_article_text(url: str, timeout: int = 10) -> tuple[str, str]:
         If successful, error_message is empty string.
     """
     try:
-        # Fetch the webpage
+        # Fetch the webpage with encoding detection
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
         response = requests.get(url, headers=headers, timeout=timeout)
         response.raise_for_status()
+        
+        # Try to detect encoding from response
+        if response.encoding == 'ISO-8859-1':
+            # Common fallback for misconfigured servers
+            response.encoding = response.apparent_encoding
         
         # Parse HTML
         soup = BeautifulSoup(response.text, "html.parser")
@@ -73,6 +78,41 @@ def extract_article_text(url: str, timeout: int = 10) -> tuple[str, str]:
         return "", error_msg
 
 
+def is_download_url(url: str) -> bool:
+    """Check if URL is a file download link.
+    
+    Args:
+        url: URL to check.
+        
+    Returns:
+        True if URL appears to be a download link.
+    """
+    url_lower = url.lower()
+    download_indicators = [
+        "filedown.do",
+        "download.do",
+        ".pdf",
+        ".hwp",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".ppt",
+        ".pptx",
+        ".zip",
+        ".rar",
+        "atchfileid",
+        "fn=",
+        "rs=",
+    ]
+    
+    for indicator in download_indicators:
+        if indicator in url_lower:
+            return True
+    
+    return False
+
+
 def enrich_search_results(search_results: list[dict], min_length: int = 300) -> list[dict]:
     """Enrich search results with full webpage content.
     
@@ -89,6 +129,11 @@ def enrich_search_results(search_results: list[dict], min_length: int = 300) -> 
     for result in search_results:
         url = result.get("url", "")
         original_content = result.get("content", "")
+        
+        # Skip file download URLs
+        if is_download_url(url):
+            LOGGER.warning(f"Skipping download URL: {url}")
+            continue
         
         LOGGER.info(f"Processing URL: {url}")
         LOGGER.info(f"Original snippet length: {len(original_content)} characters")

@@ -102,16 +102,22 @@ def search_web(query: str, settings: Settings) -> dict:
         response = client.search(
             query=query,
             max_results=settings.search_max_results,
-            search_depth="basic",
+            search_depth="advanced",
             include_answer=False,
-            include_raw_content=False,
+            include_raw_content=True,
             include_domains=include_domains,
             exclude_domains=exclude_domains,
         )
 
         LOGGER.info("Tavily search completed: %d results returned", len(response.get("results", [])))
 
-        normalized_results = []
+        normalized_result = {
+         "title": result.get("title", ""),
+         "url": result.get("url", ""),
+         "content": result.get("raw_content") or result.get("content", ""),
+         "score": result.get("score", 0.0),
+         "source_type": classify_source(result.get("url", "")),
+         }
         for result in response.get("results", []):
             normalized_result = {
                 "title": result.get("title", ""),
