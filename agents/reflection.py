@@ -32,8 +32,7 @@ def evaluate_research_quality(state: ResearchState, settings: Settings) -> dict[
             # Calculate metrics from validated facts
             unique_organizations = set()
             government_organizations = 0
-            international_cases = 0
-            implementation_examples = 0
+            facts_with_service_name = 0
             
             for fact in facts:
                 org = fact.get("organization")
@@ -45,28 +44,21 @@ def evaluate_research_quality(state: ResearchState, settings: Settings) -> dict[
                 if ".gov" in url or "gov.kr" in url or "go.kr" in url or "or.kr" in url:
                     government_organizations += 1
                 
-                # Count international cases
-                country = fact.get("country")
-                if country and country.lower() not in ["korea", "south korea", "한국", "kr"]:
-                    international_cases += 1
-                
-                # Count implementation examples
-                service_type = fact.get("service_type")
-                if service_type:
-                    implementation_examples += 1
+                # Count facts with service_name
+                if fact.get("service_name"):
+                    facts_with_service_name += 1
             
             # Calculate duplicate ratio
             extracted_count = len(state.get("extracted_facts", []))
             validated_count = len(facts)
             duplicate_ratio = (extracted_count - validated_count) / extracted_count if extracted_count > 0 else 0
             
-            # Reflection criteria
+            # Reflection criteria (relaxed for simplified schema)
             criteria = {
                 "validated_facts": validated_count,
                 "unique_organizations": len(unique_organizations),
                 "government_organizations": government_organizations,
-                "international_cases": international_cases,
-                "implementation_examples": implementation_examples,
+                "facts_with_service_name": facts_with_service_name,
                 "duplicate_ratio": duplicate_ratio,
                 "reflection_count": reflection_count,
             }
@@ -75,18 +67,16 @@ def evaluate_research_quality(state: ResearchState, settings: Settings) -> dict[
             LOGGER.info(f"Research quality metrics: {criteria}")
             metrics.update(criteria)
             
-            # Determine if additional research is needed
+            # Determine if additional research is needed (relaxed criteria)
             needs_research = (
-                validated_count < 5
-                or len(unique_organizations) < 5
-                or government_organizations < 5
-                or international_cases == 0
-                or implementation_examples < 5
-                or duplicate_ratio > 0.3
+                validated_count < 3
+                or len(unique_organizations) < 2
+                or government_organizations < 2
+                or duplicate_ratio > 0.5
             )
             
-            # Check reflection loop limit
-            if reflection_count >= 2:
+            # Check reflection loop limit (reduced to prevent infinite loops)
+            if reflection_count >= 1:
                 LOGGER.warning("Maximum reflection loop reached, proceeding with current results")
                 needs_research = False
             
