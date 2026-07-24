@@ -71,10 +71,8 @@ def make_summarize_findings(settings: Settings):
                 for fact in facts[:10]:  # Limit to top 10 facts
                     org = fact.get("organization", "알 수 없음")
                     service = fact.get("service_name", "알 수 없음")
-                    country = fact.get("country", "알 수 없음")
-                    service_type = fact.get("service_type", "알 수 없음")
-                    purpose = fact.get("purpose", "")
-                    facts_text += f"- {org} ({country}): {service} ({service_type}) - {purpose[:100]}\n"
+                    purpose = fact.get("purpose", "") or ""
+                    facts_text += f"- {org}: {service} - {purpose[:100] if purpose else '목적 없음'}\n"
 
                 topic = state.get("topic", "연구 주제")
 
