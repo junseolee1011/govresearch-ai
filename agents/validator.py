@@ -23,10 +23,14 @@ def validate_fact(fact: dict) -> tuple[bool, str]:
     Returns:
         Tuple of (is_valid, rejection_reason).
     """
-    # Required fields: organization and source_url only
-    if not fact.get("organization"):
-        return False, "missing organization"
+    # Required: at least organization OR service_name must be present
+    org = fact.get("organization")
+    service = fact.get("service_name")
     
+    if not org and not service:
+        return False, "both organization and service_name are empty"
+    
+    # source_url is required
     if not fact.get("source_url"):
         return False, "missing source_url"
     
@@ -94,6 +98,7 @@ def validate_facts(facts: list[dict]) -> tuple[list[dict], list[dict]]:
     print("========================\n")
     
     LOGGER.info(f"Validated {len(validated)} facts, rejected {len(rejected)} facts")
+    LOGGER.info(f"Rejected fact count: {len(rejected)}")
     
     # Stage 7 Debug: Summary counts
     print("\n========================")

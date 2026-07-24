@@ -1,4 +1,4 @@
-"""Fact extraction agent with batched LLM processing for performance."""
+"""Fact extraction agent with simplified schema and batched LLM processing."""
 
 import json
 import logging
@@ -51,15 +51,14 @@ def clean_json_response(response: str) -> str:
     return response
 
 
-def parse_json_with_recovery(json_str: str, fallback_data: list[dict]) -> list[dict]:
+def parse_json_with_recovery(json_str: str) -> list[dict] | None:
     """Parse JSON with recovery attempts.
     
     Args:
         json_str: JSON string to parse.
-        fallback_data: Fallback data to return if parsing fails.
         
     Returns:
-        Parsed list of facts or fallback data.
+        Parsed list of facts or None if all recovery attempts fail.
     """
     try:
         return json.loads(json_str)
@@ -88,8 +87,8 @@ def parse_json_with_recovery(json_str: str, fallback_data: list[dict]) -> list[d
         except json.JSONDecodeError:
             pass
         
-        LOGGER.error("All JSON recovery attempts failed, using fallback")
-        return fallback_data
+        LOGGER.error("All JSON recovery attempts failed")
+        return None
 
 
 def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
@@ -105,13 +104,13 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
     if not docs:
         return []
     
-    # Build batch prompt
+    # Build batch prompt with simplified schema
     prompt_parts = ["Extract structured information from the following documents about AI services used by public institutions.\n"]
     
     for i, doc in enumerate(docs, 1):
         title = doc.get("title", "")
         url = doc.get("url", "")
-        content = doc.get("content", "")[:800]  # Shorter for batching
+        content = doc.get("content", "")[:1000]  # Longer content for better extraction
         
         prompt_parts.append(f"\nDocument {i}:")
         prompt_parts.append(f"Title: {title}")
@@ -121,41 +120,15 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
     prompt_parts.append("\n\nFor each document, extract these fields as a JSON array:")
     prompt_parts.append("- organization: Name of the organization/institution")
     prompt_parts.append("- service_name: Name of the AI service")
+    prompt_parts.append("- purpose: Purpose of the AI service")
     prompt_parts.append("- source_url: URL of the source")
     prompt_parts.append("- source_title: Title of the source")
-    prompt_parts.append("- country: Country where the service is deployed")
-    prompt_parts.append("- service_type: Type of AI service")
-    prompt_parts.append("- technology: Technology stack used")
-    prompt_parts.append("- llm_model: LLM model used")
-    prompt_parts.append("- rag: Boolean indicating if RAG is used")
-    prompt_parts.append("- launch_year: Year of launch")
-    prompt_parts.append("- purpose: Purpose of the AI service")
-    prompt_parts.append("- benefits: List of benefits")
-    prompt_parts.append("- limitations: List of limitations")
-    prompt_parts.append("\nUse null if not found. Use empty array [] for lists. Do not invent values.")
+    prompt_parts.append("\nUse null if not found. Do not invent values.")
     prompt_parts.append("\nReturn only a valid JSON array, nothing else.")
     
     prompt = "\n".join(prompt_parts)
     
-    # Prepare fallback data
-    fallback_facts = []
-    for doc in docs:
-        fallback_facts.append({
-            "organization": None,
-            "service_name": None,
-            "source_url": doc.get("url", ""),
-            "source_title": doc.get("title", ""),
-            "country": None,
-            "service_type": None,
-            "technology": None,
-            "llm_model": None,
-            "rag": None,
-            "launch_year": None,
-            "purpose": None,
-            "benefits": [],
-            "limitations": [],
-            "source_quality": rank_source(doc.get("url", "")),
-        })
+    LOGGER.info(f"Prompt length: {len(prompt)} characters")
     
     try:
         # LLM call with timing
@@ -163,6 +136,7 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
         response = llm.invoke(prompt)
         llm_duration = time.time() - llm_start
         
+        LOGGER.info(f"LLM response length: {len(response)} characters")
         LOGGER.info(f"LLM call completed in {llm_duration:.2f}s for batch of {len(docs)} documents")
         
         # Debug: Raw LLM response
@@ -177,47 +151,54 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
         # JSON parsing with timing
         parse_start = time.time()
         cleaned_json = clean_json_response(response)
-        facts = parse_json_with_recovery(cleaned_json, fallback_facts)
+        facts = parse_json_with_recovery(cleaned_json)
         parse_duration = time.time() - parse_start
         
         LOGGER.info(f"JSON parsing completed in {parse_duration:.2f}s")
         
+        # If parsing failed, return empty list (skip all documents in this batch)
+        if facts is None:
+            LOGGER.error(f"Failed to parse JSON for batch of {len(docs)} documents, skipping batch")
+            return []
+        
         # Ensure facts is a list
         if not isinstance(facts, list):
-            LOGGER.warning(f"Expected list but got {type(facts)}, using fallback")
-            facts = fallback_facts
+            LOGGER.warning(f"Expected list but got {type(facts)}, skipping batch")
+            return []
         
         # Ensure we have the right number of facts
         if len(facts) != len(docs):
             LOGGER.warning(f"Expected {len(docs)} facts but got {len(facts)}, adjusting")
-            # Pad or truncate to match document count
-            while len(facts) < len(docs):
-                facts.append(fallback_facts[len(facts)])
-            facts = facts[:len(docs)]
+            # Truncate if too many, pad with None if too few
+            if len(facts) > len(docs):
+                facts = facts[:len(docs)]
+            else:
+                # Add None for missing facts (will be filtered out later)
+                while len(facts) < len(docs):
+                    facts.append(None)
         
-        # Add source quality and ensure all fields exist
+        # Process facts and ensure all fields exist
+        valid_facts = []
         for i, (fact, doc) in enumerate(zip(facts, docs)):
+            if fact is None:
+                LOGGER.warning(f"Fact {i+1} is None, skipping")
+                continue
+            
+            # Ensure required fields exist
             fact.setdefault("organization", None)
             fact.setdefault("service_name", None)
+            fact.setdefault("purpose", None)
             fact.setdefault("source_url", doc.get("url", ""))
             fact.setdefault("source_title", doc.get("title", ""))
-            fact.setdefault("country", None)
-            fact.setdefault("service_type", None)
-            fact.setdefault("technology", None)
-            fact.setdefault("llm_model", None)
-            fact.setdefault("rag", None)
-            fact.setdefault("launch_year", None)
-            fact.setdefault("purpose", None)
-            fact.setdefault("benefits", [])
-            fact.setdefault("limitations", [])
-            fact["source_quality"] = rank_source(doc.get("url", ""))
+            
+            valid_facts.append(fact)
         
-        LOGGER.info(f"Extracted {len(facts)} facts from batch of {len(docs)} documents")
-        return facts
+        LOGGER.info(f"Parsed {len(valid_facts)} facts from batch of {len(docs)} documents")
+        return valid_facts
         
     except Exception as e:
         LOGGER.error(f"Batch fact extraction failed: {e}")
-        return fallback_facts
+        return []
 
 
 def make_extract_facts(settings: Settings):
@@ -250,8 +231,8 @@ def make_extract_facts(settings: Settings):
                     LOGGER.warning("No search results to extract facts from")
                     return {"extracted_facts": []}
                 
-                # Process in batches of 5
-                batch_size = 5
+                # Use single batch for up to 15 documents
+                batch_size = 15
                 all_facts = []
                 
                 total_start = time.time()
@@ -265,6 +246,7 @@ def make_extract_facts(settings: Settings):
                 
                 total_duration = time.time() - total_start
                 LOGGER.info(f"Total fact extraction completed in {total_duration:.2f}s for {len(search_results)} documents")
+                LOGGER.info(f"Parsed fact count: {len(all_facts)}")
                 
                 metrics["fact_count"] = len(all_facts)
                 metrics["batch_count"] = (len(search_results) + batch_size - 1) // batch_size
@@ -279,6 +261,7 @@ def make_extract_facts(settings: Settings):
                     print(f"\nFact {i}:")
                     print(f"  Organization: {fact.get('organization', 'N/A')}")
                     print(f"  Service Name: {fact.get('service_name', 'N/A')}")
+                    print(f"  Purpose: {fact.get('purpose', 'N/A')}")
                     print(f"  Source URL: {fact.get('source_url', 'N/A')}")
                     print(f"  Source Title: {fact.get('source_title', 'N/A')}")
                 print("========================\n")

@@ -241,15 +241,14 @@ def generate_organization_inventory_from_facts(facts: list[dict]) -> str:
     if not facts:
         return "조직 정보를 찾을 수 없습니다.\n"
     
-    report = "| 기관명 | 국가 | 서비스명 | 서비스 유형 |\n"
-    report += "| --- | --- | --- | --- |\n"
+    report = "| 기관명 | 서비스명 | 목적 |\n"
+    report += "| --- | --- | --- |\n"
     
     for fact in facts:
         org = fact.get("organization", "알 수 없음")
-        country = fact.get("country", "알 수 없음")
         service = fact.get("service_name", "알 수 없음")
-        service_type = fact.get("service_type", "알 수 없음")
-        report += f"| {org} | {country} | {service} | {service_type} |\n"
+        purpose = fact.get("purpose", "알 수 없음")
+        report += f"| {org} | {service} | {purpose} |\n"
     
     return report
 
@@ -263,17 +262,16 @@ def generate_domestic_cases_from_facts(facts: list[dict]) -> str:
     Returns:
         Domestic cases text.
     """
-    domestic = [f for f in facts if f.get("country", "").lower() in ["korea", "south korea", "한국", "kr"]]
-    
-    if not domestic:
+    # Since we removed country field, all facts are treated as domestic
+    if not facts:
         return "국내 사례를 찾을 수 없습니다.\n"
     
     report = ""
-    for fact in domestic:
+    for fact in facts:
         org = fact.get("organization", "알 수 없음")
         service = fact.get("service_name", "알 수 없음")
         purpose = fact.get("purpose", "")
-        report += f"- **{org}**: {service}\n"
+        report += f"- **{org}**: {service} ({purpose})\n"
         if purpose:
             report += f"  - 목적: {purpose[:100]}...\n"
     
@@ -289,19 +287,8 @@ def generate_international_cases_from_facts(facts: list[dict]) -> str:
     Returns:
         International cases text.
     """
-    international = [f for f in facts if f.get("country", "").lower() not in ["korea", "south korea", "한국", "kr", "알 수 없음"]]
-    
-    if not international:
-        return "국제 사례를 찾을 수 없습니다.\n"
-    
-    report = ""
-    for fact in international:
-        org = fact.get("organization", "알 수 없음")
-        country = fact.get("country", "알 수 없음")
-        service = fact.get("service_name", "알 수 없음")
-        report += f"- **{org}** ({country}): {service}\n"
-    
-    return report
+    # Since we removed country field, we cannot distinguish international cases
+    return "국제 사례 분석은 현재 스키마에서 지원되지 않습니다.\n"
 
 
 def generate_technology_stack_from_facts(facts: list[dict]) -> str:
@@ -313,37 +300,8 @@ def generate_technology_stack_from_facts(facts: list[dict]) -> str:
     Returns:
         Technology stack text.
     """
-    llms = set()
-    rag_count = 0
-    technologies = set()
-    
-    for fact in facts:
-        llm = fact.get("llm_model")
-        if llm:
-            llms.add(llm)
-        if fact.get("rag"):
-            rag_count += 1
-        tech = fact.get("technology")
-        if tech:
-            technologies.add(tech)
-    
-    report = ""
-    if llms:
-        report += "### LLM Models\n"
-        for llm in llms:
-            report += f"- {llm}\n"
-        report += "\n"
-    
-    if technologies:
-        report += "### Technologies\n"
-        for tech in technologies:
-            report += f"- {tech}\n"
-        report += "\n"
-    
-    report += f"### RAG Usage\n"
-    report += f"- RAG 사용 사례: {rag_count}개\n"
-    
-    return report
+    # Since we removed technology, llm_model, and rag fields, this section is simplified
+    return "기술 스택 분석은 현재 스키마에서 지원되지 않습니다.\n"
 
 
 def generate_implementation_patterns_from_facts(facts: list[dict]) -> str:
@@ -355,15 +313,22 @@ def generate_implementation_patterns_from_facts(facts: list[dict]) -> str:
     Returns:
         Implementation patterns text.
     """
-    service_types = {}
-    for fact in facts:
-        st = fact.get("service_type")
-        if st:
-            service_types[st] = service_types.get(st, 0) + 1
+    # Since we removed service_type field, this section is simplified
+    if not facts:
+        return "구현 패턴 분석을 위한 데이터가 부족합니다.\n"
     
-    report = "### 서비스 유형 분포\n"
-    for service_type, count in service_types.items():
-        report += f"- {service_type}: {count}개\n"
+    report = f"총 {len(facts)}개의 AI 서비스 구현 사례가 분석되었습니다.\n"
+    
+    # Analyze purposes instead of service types
+    purposes = {}
+    for fact in facts:
+        purpose = fact.get("purpose", "알 수 없음")
+        purposes[purpose] = purposes.get(purpose, 0) + 1
+    
+    if purposes:
+        report += "\n### 서비스 목적 분포\n"
+        for purpose, count in sorted(purposes.items(), key=lambda x: x[1], reverse=True):
+            report += f"- {purpose}: {count}개\n"
     
     return report
 
@@ -377,41 +342,25 @@ def generate_recommendations_from_facts(facts: list[dict]) -> str:
     Returns:
         Recommendations based on facts.
     """
-    # Analyze facts to generate data-driven recommendations
-    rag_count = sum(1 for f in facts if f.get("rag"))
+    # Simplified recommendations based on available fields
+    if not facts:
+        return "추천사항을 생성하기에 충분한 데이터가 없습니다.\n"
+    
     total_count = len(facts)
+    report = f"분석된 {total_count}개의 AI 서비스 구현 사례를 기반으로 다음과 같은 추천사항을 제안합니다.\n\n"
     
-    report = ""
-    
-    if rag_count > 0:
-        rag_ratio = (rag_count / total_count) * 100
-        report += f"조사된 {total_count}개 조직 중 {rag_count}개({rag_ratio:.1f}%)가 RAG 기반 문서 검색을 채택했습니다. "
-        report += "이는 문서 중심 AI가 지배적인 패턴임을 나타냅니다.\n\n"
-    
-    # Analyze service types
-    service_types = {}
+    # Analyze purposes
+    purposes = {}
     for fact in facts:
-        st = fact.get("service_type")
-        if st:
-            service_types[st] = service_types.get(st, 0) + 1
+        purpose = fact.get("purpose", "알 수 없음")
+        purposes[purpose] = purposes.get(purpose, 0) + 1
     
-    if service_types:
-        dominant_type = max(service_types.items(), key=lambda x: x[1])
-        report += f"가장 일반적인 서비스 유형은 '{dominant_type[0]}'으로 {dominant_type[1]}개 사례에서 확인되었습니다.\n\n"
+    if purposes:
+        dominant_purpose = max(purposes.items(), key=lambda x: x[1])
+        report += f"가장 일반적인 서비스 목적은 '{dominant_purpose[0]}'으로 {dominant_purpose[1]}개 사례에서 확인되었습니다. "
+        report += "이를 참고하여 유사한 목적의 서비스 구현을 고려할 수 있습니다.\n\n"
     
-    # Analyze benefits
-    benefits = []
-    for fact in facts:
-        fact_benefits = fact.get("benefits", [])
-        benefits.extend(fact_benefits)
-    
-    if benefits:
-        report += "주요 혜택:\n"
-        for benefit in set(benefits[:5]):
-            report += f"- {benefit}\n"
-    
-    if not report:
-        report = "추천사항을 생성하기에 충분한 데이터가 없습니다.\n"
+    report += f"분석된 {total_count}개 기관의 구현 사례를 벤치마킹하여 서비스 기획에 활용하십시오.\n"
     
     return report
 
@@ -436,7 +385,8 @@ def generate_limitations_from_facts(facts: list[dict], metrics: dict) -> str:
     
     report += "품질 지표:\n"
     for k, v in metrics.items():
-        report += f"- {k}: {v}\n"
+        if isinstance(v, (int, float)):
+            report += f"- {k}: {v}\n"
     
     return report
 
