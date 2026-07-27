@@ -137,8 +137,14 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
     prompt_parts.append("- purpose: Purpose of the AI service")
     prompt_parts.append("- source_url: URL of the source")
     prompt_parts.append("- source_title: Title of the source")
-    prompt_parts.append("\nUse null if not found. Do not invent values.")
-    prompt_parts.append("\nReturn only a valid JSON array, nothing else.")
+    prompt_parts.append("\nIMPORTANT INSTRUCTIONS:")
+    prompt_parts.append("- For every document, return exactly one JSON object.")
+    prompt_parts.append("- If the document only describes policies, research, reports, or statistics and does NOT describe an actual AI service, return:")
+    prompt_parts.append('  {"organization": null, "service_name": null, "purpose": null, "source_url": "...", "source_title": "..."}')
+    prompt_parts.append("- Do NOT invent services. Only extract actual AI services mentioned in the document.")
+    prompt_parts.append("- Return exactly N JSON objects, where N equals the number of input documents.")
+    prompt_parts.append("- Do not omit documents. Every document must have a corresponding JSON object.")
+    prompt_parts.append("- Return ONLY valid JSON. No explanations, no markdown code blocks.")
     
     prompt = "\n".join(prompt_parts)
     
@@ -245,8 +251,8 @@ def make_extract_facts(settings: Settings):
                     LOGGER.warning("No search results to extract facts from")
                     return {"extracted_facts": []}
                 
-                # Use single batch for up to 15 documents
-                batch_size = 15
+                # Use smaller batches for better quality (3-5 documents per batch)
+                batch_size = 3
                 all_facts = []
                 
                 total_start = time.time()
