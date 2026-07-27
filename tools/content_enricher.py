@@ -118,52 +118,43 @@ def enrich_search_results(search_results: list[dict], min_length: int = 300) -> 
     
     Args:
         search_results: List of search result dictionaries.
-        min_length: Minimum character length for extracted body text.
+        min_length: Minimum character length for extracted body text (ignored for fallback).
         
     Returns:
         List of enriched search results with extracted content.
-        Documents with insufficient content are filtered out.
+        Always returns the same number of documents as input.
+        If extraction fails, uses original content as fallback.
     """
     enriched_results = []
+    original_count = len(search_results)
     
     for result in search_results:
         url = result.get("url", "")
         original_content = result.get("content", "")
         
-        # Skip file download URLs
-        if is_download_url(url):
-            LOGGER.warning(f"Skipping download URL: {url}")
-            continue
-        
-        # Skip if we already have sufficient content
-        if len(original_content) >= min_length:
-            LOGGER.info(f"Skipping {url}: already has sufficient content")
-            enriched_results.append(result)
-            continue
-        
-        LOGGER.info(f"Processing URL: {url}")
-        LOGGER.info(f"Original snippet length: {len(original_content)} characters")
-        
-        # Extract full article text
+        # Try to extract full article text
         extracted_text, error = extract_article_text(url)
         
         if error:
-            LOGGER.warning(f"Skipping {url} due to extraction error: {error}")
+            LOGGER.warning(f"Extraction failed for {url}: {error}, using fallback content")
+            # Use original content as fallback
+            enriched_result = result.copy()
+            enriched_result["content"] = original_content
+            enriched_result["original_snippet"] = original_content
+            enriched_results.append(enriched_result)
             continue
         
-        LOGGER.info(f"Extracted body length: {len(extracted_text)} characters")
-        
-        # Discard if too short
+        # If extraction succeeded but content is too short, use extracted anyway
+        # (don't filter, just use what we got)
         if len(extracted_text) < min_length:
-            LOGGER.warning(f"Skipping {url}: extracted content too short ({len(extracted_text)} < {min_length})")
-            continue
+            LOGGER.info(f"Extracted content for {url} is short ({len(extracted_text)} chars), using it anyway")
         
-        # Enrich the result
+        # Enrich the result with extracted content
         enriched_result = result.copy()
         enriched_result["content"] = extracted_text
         enriched_result["original_snippet"] = original_content
         enriched_results.append(enriched_result)
     
-    LOGGER.info(f"Enriched {len(enriched_results)} out of {len(search_results)} documents")
+    LOGGER.info(f"Content enrichment: processed {len(enriched_results)} documents (input: {original_count}, output: {len(enriched_results)})")
     
     return enriched_results
