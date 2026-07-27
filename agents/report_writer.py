@@ -187,8 +187,26 @@ def generate_executive_summary_from_facts(topic: str, facts: list[dict], summary
     Returns:
         Executive summary.
     """
-    org_count = len(set(f.get("organization") for f in facts if f.get("organization")))
-    service_count = len(set(f.get("service_name") for f in facts if f.get("service_name")))
+    # Handle cases where organization or service_name might be lists
+    orgs = []
+    services = []
+    for f in facts:
+        org = f.get("organization")
+        if org:
+            if isinstance(org, list):
+                orgs.extend([str(o) for o in org if o])
+            else:
+                orgs.append(str(org))
+        
+        service = f.get("service_name")
+        if service:
+            if isinstance(service, list):
+                services.extend([str(s) for s in service if s])
+            else:
+                services.append(str(service))
+    
+    org_count = len(set(orgs))
+    service_count = len(set(services))
     
     report = f"본 연구는 '{topic}'에 대한 조사를 수행했습니다.\n\n"
     report += f"총 {org_count}개 기관의 {service_count}개 AI 서비스를 식별했습니다.\n\n"
