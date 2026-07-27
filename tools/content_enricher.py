@@ -31,7 +31,8 @@ def extract_article_text(url: str, timeout: int = 10) -> tuple[str, str]:
             import trafilatura
             downloaded = trafilatura.fetch_url(url, timeout=timeout)
             if downloaded:
-                text = trafilatura.extract(downloaded)
+                # Use trafilatura with more aggressive extraction
+                text = trafilatura.extract(downloaded, include_comments=False, include_tables=True)
                 if text and len(text) > 100:
                     LOGGER.info(f"Trafilatura extraction successful for {url}: {len(text)} characters")
                     return text, ""
@@ -81,12 +82,17 @@ def extract_article_text_beautifulsoup(url: str, timeout: int = 10) -> tuple[str
             element.decompose()
         
         # Remove common navigation/menu classes - more patterns
-        for element in soup.find_all(class_=re.compile(r"(nav|menu|sidebar|footer|header|breadcrumb|pagination|wrapper|container|toolbar|utility)", re.I)):
+        for element in soup.find_all(class_=re.compile(r"(nav|menu|sidebar|footer|header|breadcrumb|pagination|wrapper|container|toolbar|utility|skip|accessibility)", re.I)):
             element.decompose()
         
         # Remove elements by id patterns
-        for element in soup.find_all(id=re.compile(r"(nav|menu|sidebar|footer|header|breadcrumb|pagination|wrapper|toolbar|utility)", re.I)):
+        for element in soup.find_all(id=re.compile(r"(nav|menu|sidebar|footer|header|breadcrumb|pagination|wrapper|toolbar|utility|skip|accessibility)", re.I)):
             element.decompose()
+        
+        # Remove elements with specific text patterns (navigation text)
+        for element in soup.find_all(text=re.compile(r"(본문 바로가기|전체메뉴|바로가기|팝업|알림|닫기|건너뛰기)", re.I)):
+            if element.parent:
+                element.parent.decompose()
         
         # Get text from main content areas
         # Try to find main content containers
@@ -105,6 +111,12 @@ def extract_article_text_beautifulsoup(url: str, timeout: int = 10) -> tuple[str
         
         # Clean up whitespace
         text = re.sub(r'\s+', ' ', text).strip()
+        
+        # If text is too short, return error to trigger fallback
+        if len(text) < 50:
+            error_msg = f"Extracted content too short ({len(text)} chars)"
+            LOGGER.warning(error_msg)
+            return "", error_msg
         
         return text, ""
         
@@ -138,18 +150,43 @@ def extract_pdf_text(url: str, timeout: int = 10) -> tuple[str, str]:
         response = requests.get(url, headers=headers, timeout=timeout)
         response.raise_for_status()
         
-        # Open PDF from bytes
-        doc = fitz.open(stream=response.content, filetype="pdf")
+        # Open PDF from bytes with error handling
+        try:
+            doc = fitz.open(stream=response.content, filetype="pdf")
+        except Exception as pdf_error:
+            # Try opening without filetype specification
+            try:
+                doc = fitz.open(stream=response.content)
+            except Exception as e:
+                error_msg = f"Failed to open PDF: {e}"
+                LOGGER.warning(error_msg)
+                return "", error_msg
         
-        # Extract text from all pages
+        # Extract text from all pages with error suppression
         text_parts = []
         for page in doc:
-            text_parts.append(page.get_text())
+            try:
+                # Suppress MuPDF font errors by using get_text with flags
+                page_text = page.get_text(flags=fitz.TEXT_PRESERVE_WHITESPACE | fitz.TEXT_PRESERVE_LIGATURES)
+                text_parts.append(page_text)
+            except Exception as page_error:
+                # Try alternative extraction method if page extraction fails
+                try:
+                    page_text = page.get_text()
+                    text_parts.append(page_text)
+                except Exception:
+                    # Skip this page if both methods fail
+                    continue
         
         doc.close()
         
         text = " ".join(text_parts)
         text = " ".join(text.split())  # Clean up whitespace
+        
+        if len(text) < 50:
+            error_msg = f"Extracted PDF content too short ({len(text)} chars)"
+            LOGGER.warning(error_msg)
+            return "", error_msg
         
         LOGGER.info(f"PDF extraction successful for {url}: {len(text)} characters")
         return text, ""

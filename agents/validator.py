@@ -27,7 +27,15 @@ def validate_fact(fact: dict) -> tuple[bool, str]:
     org = fact.get("organization")
     service = fact.get("service_name")
     
-    if not org and not service:
+    # Handle list types - check if any element is truthy
+    def has_value(field):
+        if field is None:
+            return False
+        if isinstance(field, list):
+            return any(item for item in field if item)
+        return bool(field)
+    
+    if not has_value(org) and not has_value(service):
         return False, "both organization and service_name are empty"
     
     # source_url is required

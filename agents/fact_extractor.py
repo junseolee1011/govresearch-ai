@@ -34,6 +34,23 @@ def clean_json_response(response: str) -> str:
     response = re.sub(r'```json\s*', '', response)
     response = re.sub(r'```\s*', '', response)
     
+    # Remove common LLM explanations that might appear after JSON
+    # Look for patterns like "Note that..." or "However..." after the JSON
+    explanation_patterns = [
+        r'\n\nNote that',
+        r'\n\nHowever',
+        r'\n\nThe first',
+        r'\n\nThe second',
+        r'\n\nNote the',
+        r'\n\nPlease note',
+        r'\n\nIf you',
+    ]
+    
+    for pattern in explanation_patterns:
+        match = re.search(pattern, response, re.IGNORECASE)
+        if match:
+            response = response[:match.start()]
+    
     # Find the first [ and last ]
     array_start = response.find('[')
     array_end = response.rfind(']') + 1
@@ -132,13 +149,14 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
     print("========================\n")
     
     prompt_parts.append("\n\nFor each document, extract these fields as a JSON array:")
-    prompt_parts.append("- organization: Name of the organization/institution")
-    prompt_parts.append("- service_name: Name of the AI service")
-    prompt_parts.append("- purpose: Purpose of the AI service")
+    prompt_parts.append("- organization: Name of the organization/institution (STRING, not list)")
+    prompt_parts.append("- service_name: Name of the AI service (STRING, not list. If multiple services, pick the most prominent one)")
+    prompt_parts.append("- purpose: Purpose of the AI service (STRING, not list. If multiple purposes, pick the main one)")
     prompt_parts.append("- source_url: URL of the source")
     prompt_parts.append("- source_title: Title of the source")
     prompt_parts.append("\nIMPORTANT INSTRUCTIONS:")
     prompt_parts.append("- For every document, return exactly one JSON object.")
+    prompt_parts.append("- All fields must be STRINGS or null, never lists or arrays.")
     prompt_parts.append("- If the document only describes policies, research, reports, or statistics and does NOT describe an actual AI service, return:")
     prompt_parts.append('  {"organization": null, "service_name": null, "purpose": null, "source_url": "...", "source_title": "..."}')
     prompt_parts.append("- Do NOT invent services. Only extract actual AI services mentioned in the document.")
@@ -210,6 +228,17 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
             fact.setdefault("purpose", None)
             fact.setdefault("source_url", doc.get("url", ""))
             fact.setdefault("source_title", doc.get("title", ""))
+            
+            # Convert lists to strings (LLM sometimes returns lists)
+            for field in ["organization", "service_name", "purpose"]:
+                value = fact.get(field)
+                if isinstance(value, list):
+                    # Join list elements with comma, or pick first if only one
+                    if len(value) == 1:
+                        fact[field] = str(value[0])
+                    else:
+                        fact[field] = ", ".join(str(v) for v in value if v)
+                    LOGGER.debug(f"Converted list to string for {field}: {fact[field]}")
             
             valid_facts.append(fact)
         
