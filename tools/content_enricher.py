@@ -77,20 +77,31 @@ def extract_article_text_beautifulsoup(url: str, timeout: int = 10) -> tuple[str
         # Parse HTML
         soup = BeautifulSoup(response.text, "html.parser")
         
+        # Special handling for Naver blogs
+        if "blog.naver.com" in url:
+            # Try to find the blog post content area
+            for selector in ["div.se-main-container", "div#postViewArea", "div.post-view", "div.sect_dsc"]:
+                content_div = soup.select_one(selector)
+                if content_div:
+                    text = content_div.get_text(separator=" ", strip=True)
+                    if len(text) > 100:
+                        LOGGER.info(f"Naver blog extraction successful for {url}: {len(text)} characters")
+                        return text, ""
+        
         # Remove unwanted elements - more aggressive filtering
         for element in soup(["script", "style", "nav", "header", "footer", "aside", "iframe", "noscript", "form", "button"]):
             element.decompose()
         
         # Remove common navigation/menu classes - more patterns
-        for element in soup.find_all(class_=re.compile(r"(nav|menu|sidebar|footer|header|breadcrumb|pagination|wrapper|container|toolbar|utility|skip|accessibility)", re.I)):
+        for element in soup.find_all(class_=re.compile(r"(nav|menu|sidebar|footer|header|breadcrumb|pagination|wrapper|container|toolbar|utility|skip|accessibility|ad|advertisement)", re.I)):
             element.decompose()
         
         # Remove elements by id patterns
-        for element in soup.find_all(id=re.compile(r"(nav|menu|sidebar|footer|header|breadcrumb|pagination|wrapper|toolbar|utility|skip|accessibility)", re.I)):
+        for element in soup.find_all(id=re.compile(r"(nav|menu|sidebar|footer|header|breadcrumb|pagination|wrapper|toolbar|utility|skip|accessibility|ad|advertisement)", re.I)):
             element.decompose()
         
         # Remove elements with specific text patterns (navigation text)
-        for element in soup.find_all(text=re.compile(r"(본문 바로가기|전체메뉴|바로가기|팝업|알림|닫기|건너뛰기)", re.I)):
+        for element in soup.find_all(text=re.compile(r"(본문 바로가기|전체메뉴|바로가기|팝업|알림|닫기|건너뛰기|광고|AD)", re.I)):
             if element.parent:
                 element.parent.decompose()
         
@@ -219,7 +230,6 @@ def is_download_url(url: str) -> bool:
         "filedown.do",
         "download.do",
         ".pdf",
-        ".hwp",
         ".doc",
         ".docx",
         ".xls",
@@ -229,13 +239,16 @@ def is_download_url(url: str) -> bool:
         ".zip",
         ".rar",
         "atchfileid",
-        "fn=",
-        "rs=",
     ]
     
     for indicator in download_indicators:
         if indicator in url_lower:
             return True
+    
+    # HWP files need special handling - only treat as download if it's a direct file link
+    # URLs like synapView/doc.html?fn=...hwp are HTML pages, not direct downloads
+    if ".hwp" in url_lower and "synapview" not in url_lower:
+        return True
     
     return False
 

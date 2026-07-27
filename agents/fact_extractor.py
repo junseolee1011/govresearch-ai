@@ -44,6 +44,10 @@ def clean_json_response(response: str) -> str:
         r'\n\nNote the',
         r'\n\nPlease note',
         r'\n\nIf you',
+        r'\n\nSince',
+        r'\n\nBut',
+        r'\n\nAlso',
+        r'\n\nIn addition',
     ]
     
     for pattern in explanation_patterns:
@@ -145,6 +149,7 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
         prompt_parts.append(f"Title: {title}")
         prompt_parts.append(f"URL: {url}")
         prompt_parts.append(f"Content: {content}")
+        prompt_parts.append(f"Source Title: {title}")  # Explicitly include source_title
     
     print("========================\n")
     
@@ -157,6 +162,8 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
     prompt_parts.append("\nIMPORTANT INSTRUCTIONS:")
     prompt_parts.append("- For every document, return exactly one JSON object.")
     prompt_parts.append("- All fields must be STRINGS or null, never lists or arrays.")
+    prompt_parts.append("- If the document describes policies, research, reports, or statistics but ALSO mentions actual AI services, extract those services.")
+    prompt_parts.append("- Only return null for ALL fields if the document has NO mention of any AI service or organization.")
     prompt_parts.append("- If the document only describes policies, research, reports, or statistics and does NOT describe an actual AI service, return:")
     prompt_parts.append('  {"organization": null, "service_name": null, "purpose": null, "source_url": "...", "source_title": "..."}')
     prompt_parts.append("- Do NOT invent services. Only extract actual AI services mentioned in the document.")
