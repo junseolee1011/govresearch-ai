@@ -128,11 +128,18 @@ def enrich_search_results(search_results: list[dict], min_length: int = 300) -> 
     
     for result in search_results:
         url = result.get("url", "")
-        original_content = result.get("content", "")
+        # Use raw_content if available, otherwise fall back to content
+        original_content = result.get("raw_content", "") or result.get("content", "")
         
         # Skip file download URLs
         if is_download_url(url):
             LOGGER.warning(f"Skipping download URL: {url}")
+            continue
+        
+        # Skip if we already have sufficient raw_content from Tavily
+        if result.get("raw_content") and len(result.get("raw_content", "")) >= min_length:
+            LOGGER.info(f"Skipping {url}: already has sufficient raw_content from Tavily")
+            enriched_results.append(result)
             continue
         
         LOGGER.info(f"Processing URL: {url}")

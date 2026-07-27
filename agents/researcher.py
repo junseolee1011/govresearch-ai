@@ -82,6 +82,10 @@ def conduct_research(state: ResearchState, settings: Settings) -> dict[str, obje
         print(f"  Title: {result.get('title', 'N/A')}")
         print(f"  URL: {result.get('url', 'N/A')}")
         print(f"  Content Length: {len(result.get('content', ''))}")
+        print(f"  Raw Content Exists: {bool(result.get('raw_content', ''))}")
+        if result.get('raw_content'):
+            print(f"  Raw Content Length: {len(result.get('raw_content', ''))}")
+            print(f"  Raw Content: {result.get('raw_content', 'N/A')[:500]}...")
         print(f"  Content: {result.get('content', 'N/A')[:200]}...")
     print("========================\n")
 
@@ -303,7 +307,8 @@ def convert_to_sources_format(search_results: list[dict], llm) -> list[dict[str,
     for result in search_results:
         # Extract more specific information from the search result
         title = result["title"]
-        content = result["content"]
+        # Use raw_content if available, otherwise fall back to content
+        content = result.get("raw_content", "") or result.get("content", "")
         url = result["url"]
         source_type = result["source_type"]
         

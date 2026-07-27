@@ -111,20 +111,16 @@ def search_web(query: str, settings: Settings) -> dict:
 
         LOGGER.info("Tavily search completed: %d results returned", len(response.get("results", [])))
 
-        normalized_result = {
-         "title": result.get("title", ""),
-         "url": result.get("url", ""),
-         "content": result.get("raw_content") or result.get("content", ""),
-         "score": result.get("score", 0.0),
-         "source_type": classify_source(result.get("url", "")),
-         }
+        normalized_results = []
         for result in response.get("results", []):
             normalized_result = {
                 "title": result.get("title", ""),
                 "url": result.get("url", ""),
                 "content": result.get("content", ""),
+                "raw_content": result.get("raw_content", ""),
                 "score": result.get("score", 0.0),
                 "source_type": classify_source(result.get("url", "")),
+                "published_date": result.get("published_date", ""),
             }
             normalized_results.append(normalized_result)
 
