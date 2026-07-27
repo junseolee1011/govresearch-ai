@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from app.state import ResearchState
 from config.settings import Settings
+from tools.document_fetcher import fetch_document
 from tools.ollama_client import get_llm
 from tools.prompt_loader import load_prompt
 from tools.tavily_search import TavilySearchError, search_web
@@ -71,7 +72,20 @@ def conduct_research(state: ResearchState, settings: Settings) -> dict[str, obje
     duplicates_removed = len(all_results) - len(unique_results)
     LOGGER.info("Removed %d duplicate URLs, %d unique results remain", duplicates_removed, len(unique_results))
     
-    # Stage 1 Debug: Tavily results
+    # Fetch full document content for each URL
+    LOGGER.info("Starting document content fetching for %d URLs", len(unique_results))
+    for result in unique_results:
+        url = result["url"]
+        fallback_content = result.get("content", "")
+        try:
+            fetched_content = fetch_document(url, fallback_content=fallback_content)
+            result["content"] = fetched_content
+            LOGGER.info(f"Fetched content for {url}: {len(fetched_content)} characters")
+        except Exception as e:
+            LOGGER.warning(f"Failed to fetch content for {url}: {e}, using fallback")
+            result["content"] = fallback_content
+    
+    # Stage 1 Debug: Tavily results with fetched content
     print("\n========================")
     print("Stage 1")
     print("========================")
@@ -82,11 +96,7 @@ def conduct_research(state: ResearchState, settings: Settings) -> dict[str, obje
         print(f"  Title: {result.get('title', 'N/A')}")
         print(f"  URL: {result.get('url', 'N/A')}")
         print(f"  Content Length: {len(result.get('content', ''))}")
-        print(f"  Raw Content Exists: {bool(result.get('raw_content', ''))}")
-        if result.get('raw_content'):
-            print(f"  Raw Content Length: {len(result.get('raw_content', ''))}")
-            print(f"  Raw Content: {result.get('raw_content', 'N/A')[:500]}...")
-        print(f"  Content: {result.get('content', 'N/A')[:200]}...")
+        print(f"  First 500 chars: {result.get('content', 'N/A')[:500]}...")
     print("========================\n")
 
     # Log source breakdown
@@ -307,8 +317,7 @@ def convert_to_sources_format(search_results: list[dict], llm) -> list[dict[str,
     for result in search_results:
         # Extract more specific information from the search result
         title = result["title"]
-        # Use raw_content if available, otherwise fall back to content
-        content = result.get("raw_content", "") or result.get("content", "")
+        content = result.get("content", "")
         url = result["url"]
         source_type = result["source_type"]
         

@@ -94,14 +94,12 @@ def remove_duplicates_by_content(sources: list[dict], threshold: int = 90) -> li
     if len(sources) <= 1:
         return sources
     
-    # Use raw_content if available, otherwise fall back to content
-    contents = [s.get("raw_content", "") or s.get("content", "") for s in sources]
+    contents = [s.get("content", "") for s in sources]
     unique = []
     seen_contents = []
     
     for i, source in enumerate(sources):
-        # Use raw_content if available, otherwise fall back to content
-        content = source.get("raw_content", "") or source.get("content", "")
+        content = source.get("content", "")
         
         # Skip if content is too short
         if len(content) < 50:

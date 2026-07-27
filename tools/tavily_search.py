@@ -104,7 +104,7 @@ def search_web(query: str, settings: Settings) -> dict:
             max_results=settings.search_max_results,
             search_depth="advanced",
             include_answer=False,
-            include_raw_content=True,
+            include_raw_content=False,
             include_domains=include_domains,
             exclude_domains=exclude_domains,
         )
@@ -117,10 +117,8 @@ def search_web(query: str, settings: Settings) -> dict:
                 "title": result.get("title", ""),
                 "url": result.get("url", ""),
                 "content": result.get("content", ""),
-                "raw_content": result.get("raw_content", ""),
                 "score": result.get("score", 0.0),
                 "source_type": classify_source(result.get("url", "")),
-                "published_date": result.get("published_date", ""),
             }
             normalized_results.append(normalized_result)
 

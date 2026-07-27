@@ -26,11 +26,9 @@ def normalize_search_result(result: dict) -> dict | None:
         title = result.get("title", "").strip()
         url = result.get("url", "").strip()
         content = result.get("content", "").strip()
-        raw_content = result.get("raw_content", "").strip()
         
-        # Validate required fields (use raw_content if available, otherwise content)
-        effective_content = raw_content if raw_content else content
-        if not title or not url or not effective_content:
+        # Validate required fields
+        if not title or not url or not content:
             LOGGER.debug(f"Skipping malformed result: missing required fields")
             return None
         
@@ -57,7 +55,6 @@ def normalize_search_result(result: dict) -> dict | None:
             "title": title,
             "url": url,
             "content": content,
-            "raw_content": raw_content,
             "domain": domain,
             "source_type": source_type,
             "published_date": published_date,

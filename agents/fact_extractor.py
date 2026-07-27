@@ -110,9 +110,7 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
     for i, doc in enumerate(docs, 1):
         title = doc.get("title", "")
         url = doc.get("url", "")
-        # Use raw_content if available, otherwise fall back to content
-        content = doc.get("raw_content", "") or doc.get("content", "")
-        content = content[:1000]  # Longer content for better extraction
+        content = doc.get("content", "")[:1000]  # Longer content for better extraction
         
         prompt_parts.append(f"\nDocument {i}:")
         prompt_parts.append(f"Title: {title}")

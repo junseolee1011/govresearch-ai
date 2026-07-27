@@ -63,8 +63,7 @@ def build_research_graph(settings: Settings) -> object:
         documents = []
         
         for result in search_results:
-            # Use raw_content if available, otherwise fall back to content
-            content = result.get("raw_content", "") or result.get("content", "")
+            content = result.get("content", "")
             doc = Document(
                 title=result["title"],
                 url=result["url"],
