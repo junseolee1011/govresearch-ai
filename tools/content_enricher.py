@@ -272,6 +272,16 @@ def enrich_search_results(search_results: list[dict], min_length: int = 300) -> 
         url = result.get("url", "")
         original_content = result.get("content", "")
         
+        # Special handling for synapView URLs - they are HTML pages that display HWP/PDF files
+        # but the actual document content is not in the HTML, so use fallback
+        if "synapview" in url.lower():
+            LOGGER.info(f"Using fallback content for synapView URL: {url}")
+            enriched_result = result.copy()
+            enriched_result["content"] = original_content
+            enriched_result["original_snippet"] = original_content
+            enriched_results.append(enriched_result)
+            continue
+        
         # Branch based on URL type
         if is_download_url(url):
             # Try PDF extraction for download URLs

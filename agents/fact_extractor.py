@@ -48,6 +48,9 @@ def clean_json_response(response: str) -> str:
         r'\n\nBut',
         r'\n\nAlso',
         r'\n\nIn addition',
+        r'\n\nNote:',
+        r'\n\nSince the documents',
+        r'\n\nHowever, since',
     ]
     
     for pattern in explanation_patterns:
@@ -162,7 +165,9 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
     prompt_parts.append("\nIMPORTANT INSTRUCTIONS:")
     prompt_parts.append("- For every document, return exactly one JSON object.")
     prompt_parts.append("- All fields must be STRINGS or null, never lists or arrays.")
+    prompt_parts.append("- Extract ANY AI service mentioned in the document, even if it's just mentioned in passing or as an example.")
     prompt_parts.append("- If the document describes policies, research, reports, or statistics but ALSO mentions actual AI services, extract those services.")
+    prompt_parts.append("- Look for specific AI service names like '포트홀 감지 AI', '직업추천 인공지능', 'AI 민원시스템', etc.")
     prompt_parts.append("- Only return null for ALL fields if the document has NO mention of any AI service or organization.")
     prompt_parts.append("- If the document only describes policies, research, reports, or statistics and does NOT describe an actual AI service, return:")
     prompt_parts.append('  {"organization": null, "service_name": null, "purpose": null, "source_url": "...", "source_title": "..."}')
@@ -234,7 +239,16 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
             fact.setdefault("service_name", None)
             fact.setdefault("purpose", None)
             fact.setdefault("source_url", doc.get("url", ""))
-            fact.setdefault("source_title", doc.get("title", ""))
+            
+            # Handle source_title encoding - use original title if LLM returns corrupted text
+            llm_title = fact.get("source_title", "")
+            original_title = doc.get("title", "")
+            
+            # If LLM title is significantly different or corrupted, use original
+            if not llm_title or len(llm_title) < len(original_title) * 0.5:
+                fact["source_title"] = original_title
+            else:
+                fact["source_title"] = llm_title
             
             # Convert lists to strings (LLM sometimes returns lists)
             for field in ["organization", "service_name", "purpose"]:
