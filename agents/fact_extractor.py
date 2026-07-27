@@ -107,15 +107,29 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
     # Build batch prompt with simplified schema
     prompt_parts = ["Extract structured information from the following documents about AI services used by public institutions.\n"]
     
+    # Pre-extractor logging
+    print("\n========================")
+    print("Pre-Extractor Document Details")
+    print("========================")
+    
     for i, doc in enumerate(docs, 1):
         title = doc.get("title", "")
         url = doc.get("url", "")
         content = doc.get("content", "")[:1000]  # Longer content for better extraction
         
+        # Log document details before extraction
+        print(f"\nDocument {i}:")
+        print(f"  Title: {title}")
+        print(f"  URL: {url}")
+        print(f"  Content Length: {len(doc.get('content', ''))}")
+        print(f"  Content First 500 chars: {doc.get('content', '')[:500]}...")
+        
         prompt_parts.append(f"\nDocument {i}:")
         prompt_parts.append(f"Title: {title}")
         prompt_parts.append(f"URL: {url}")
         prompt_parts.append(f"Content: {content}")
+    
+    print("========================\n")
     
     prompt_parts.append("\n\nFor each document, extract these fields as a JSON array:")
     prompt_parts.append("- organization: Name of the organization/institution")

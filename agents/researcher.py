@@ -76,26 +76,44 @@ def conduct_research(state: ResearchState, settings: Settings) -> dict[str, obje
     LOGGER.info("Starting document content fetching for %d URLs", len(unique_results))
     for result in unique_results:
         url = result["url"]
+        snippet_length = len(result.get("content", ""))
+        print(f"\n--- Document Fetch ---")
+        print(f"URL: {url}")
+        print(f"Snippet Length: {snippet_length}")
+        
         fallback_content = result.get("content", "")
         try:
             fetched_content = fetch_document(url, fallback_content=fallback_content)
             result["content"] = fetched_content
-            LOGGER.info(f"Fetched content for {url}: {len(fetched_content)} characters")
+            fetched_length = len(fetched_content)
+            print(f"Fetched Content Length: {fetched_length}")
+            
+            if fetched_length <= 500:
+                print(f"WARNING: Fetched content is too short ({fetched_length} <= 500 chars)")
+            
+            LOGGER.info(f"Fetched content for {url}: {fetched_length} characters")
         except Exception as e:
             LOGGER.warning(f"Failed to fetch content for {url}: {e}, using fallback")
             result["content"] = fallback_content
+            print(f"Fetched Content Length: {len(fallback_content)} (fallback)")
+            print(f"WARNING: Using fallback content due to exception")
+        print("--------------------\n")
     
     # Stage 1 Debug: Tavily results with fetched content
     print("\n========================")
     print("Stage 1")
     print("========================")
     print(f"Number of Tavily results: {len(unique_results)}")
+    print("Content shown below is what will be passed to Extractor")
     print("\nFirst 3 results:")
     for i, result in enumerate(unique_results[:3], 1):
         print(f"\nResult {i}:")
         print(f"  Title: {result.get('title', 'N/A')}")
         print(f"  URL: {result.get('url', 'N/A')}")
-        print(f"  Content Length: {len(result.get('content', ''))}")
+        content_length = len(result.get('content', ''))
+        print(f"  Content Length (passed to Extractor): {content_length}")
+        if content_length <= 500:
+            print(f"  WARNING: Content is too short for extraction ({content_length} <= 500 chars)")
         print(f"  First 500 chars: {result.get('content', 'N/A')[:500]}...")
     print("========================\n")
 

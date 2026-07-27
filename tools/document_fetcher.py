@@ -23,6 +23,10 @@ def fetch_html_content(url: str, timeout: int = 15) -> tuple[str, str]:
     Returns:
         Tuple of (extracted_text, error_message).
     """
+    print(f"\n=== Fetch Stage ===")
+    print(f"URL: {url}")
+    print(f"Extract Method: html")
+    
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -30,9 +34,15 @@ def fetch_html_content(url: str, timeout: int = 15) -> tuple[str, str]:
         response = requests.get(url, headers=headers, timeout=timeout)
         response.raise_for_status()
         
+        print(f"HTTP Status: {response.status_code}")
+        print(f"Content-Type: {response.headers.get('Content-Type', 'N/A')}")
+        
         # Handle encoding
         if response.encoding == 'ISO-8859-1':
             response.encoding = response.apparent_encoding
+        
+        html_length = len(response.text)
+        print(f"HTML Length (before extraction): {html_length}")
         
         # Parse HTML
         soup = BeautifulSoup(response.text, "html.parser")
@@ -63,13 +73,24 @@ def fetch_html_content(url: str, timeout: int = 15) -> tuple[str, str]:
         # Clean up whitespace
         text = re.sub(r'\s+', ' ', text).strip()
         
+        print(f"Extracted Text Length: {len(text)}")
+        print(f"Success: True")
+        print("====================\n")
+        
         return text, ""
         
     except requests.RequestException as e:
+        print(f"HTTP Status: Error")
+        print(f"Success: False")
+        print(f"Exception: {type(e).__name__}: {e}")
+        print("====================\n")
         error_msg = f"Failed to fetch HTML from {url}: {e}"
         LOGGER.warning(error_msg)
         return "", error_msg
     except Exception as e:
+        print(f"Success: False")
+        print(f"Exception: {type(e).__name__}: {e}")
+        print("====================\n")
         error_msg = f"Failed to parse HTML from {url}: {e}"
         LOGGER.warning(error_msg)
         return "", error_msg
@@ -85,6 +106,10 @@ def fetch_pdf_content(url: str, timeout: int = 15) -> tuple[str, str]:
     Returns:
         Tuple of (extracted_text, error_message).
     """
+    print(f"\n=== Fetch Stage ===")
+    print(f"URL: {url}")
+    print(f"Extract Method: pdf")
+    
     try:
         import fitz  # PyMuPDF
         
@@ -94,8 +119,14 @@ def fetch_pdf_content(url: str, timeout: int = 15) -> tuple[str, str]:
         response = requests.get(url, headers=headers, timeout=timeout)
         response.raise_for_status()
         
+        print(f"HTTP Status: {response.status_code}")
+        print(f"Content-Type: {response.headers.get('Content-Type', 'N/A')}")
+        
         # Open PDF from bytes
         doc = fitz.open(stream=response.content, filetype="pdf")
+        
+        page_count = len(doc)
+        print(f"PDF Page Count: {page_count}")
         
         # Extract text from all pages
         text_parts = []
@@ -107,17 +138,31 @@ def fetch_pdf_content(url: str, timeout: int = 15) -> tuple[str, str]:
         text = " ".join(text_parts)
         text = " ".join(text.split())  # Clean up whitespace
         
+        print(f"Extracted Text Length: {len(text)}")
+        print(f"Success: True")
+        print("====================\n")
+        
         return text, ""
         
-    except ImportError:
+    except ImportError as e:
+        print(f"Success: False")
+        print(f"Exception: {type(e).__name__}: {e}")
+        print("====================\n")
         error_msg = "PyMuPDF (fitz) not installed, skipping PDF extraction"
         LOGGER.warning(error_msg)
         return "", error_msg
     except requests.RequestException as e:
+        print(f"HTTP Status: Error")
+        print(f"Success: False")
+        print(f"Exception: {type(e).__name__}: {e}")
+        print("====================\n")
         error_msg = f"Failed to fetch PDF from {url}: {e}"
         LOGGER.warning(error_msg)
         return "", error_msg
     except Exception as e:
+        print(f"Success: False")
+        print(f"Exception: {type(e).__name__}: {e}")
+        print("====================\n")
         error_msg = f"Failed to parse PDF from {url}: {e}"
         LOGGER.warning(error_msg)
         return "", error_msg
@@ -133,14 +178,24 @@ def fetch_hwp_content(url: str, timeout: int = 15) -> tuple[str, str]:
     Returns:
         Tuple of (extracted_text, error_message).
     """
+    print(f"\n=== Fetch Stage ===")
+    print(f"URL: {url}")
+    print(f"Extract Method: hwp")
+    
     try:
         # HWP extraction requires additional libraries and is complex
         # For now, we'll skip HWP extraction as it requires specialized tools
+        print(f"Success: False")
+        print(f"Exception: HWP extraction not yet implemented, requires specialized libraries")
+        print("====================\n")
         error_msg = "HWP extraction not yet implemented, requires specialized libraries"
         LOGGER.warning(error_msg)
         return "", error_msg
         
     except Exception as e:
+        print(f"Success: False")
+        print(f"Exception: {type(e).__name__}: {e}")
+        print("====================\n")
         error_msg = f"Failed to parse HWP from {url}: {e}"
         LOGGER.warning(error_msg)
         return "", error_msg
@@ -196,5 +251,11 @@ def fetch_document(url: str, fallback_content: str = "", timeout: int = 15) -> s
             LOGGER.debug(f"HWP extraction failed: {error}")
     
     # Fallback to provided content
+    print(f"\n=== Fetch Stage ===")
+    print(f"URL: {url}")
+    print(f"Extract Method: fallback")
+    print(f"Success: True (using fallback)")
+    print(f"Fallback Content Length: {len(fallback_content)}")
+    print("====================\n")
     LOGGER.warning(f"All extraction methods failed for {url}, using fallback content")
     return fallback_content
