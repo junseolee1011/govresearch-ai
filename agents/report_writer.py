@@ -341,7 +341,15 @@ def generate_implementation_patterns_from_facts(facts: list[dict]) -> str:
     purposes = {}
     for fact in facts:
         purpose = fact.get("purpose", "알 수 없음")
-        purposes[purpose] = purposes.get(purpose, 0) + 1
+        # Handle cases where purpose might be a list
+        if isinstance(purpose, list):
+            for p in purpose:
+                if p:
+                    p_str = str(p)
+                    purposes[p_str] = purposes.get(p_str, 0) + 1
+        else:
+            purpose_str = str(purpose)
+            purposes[purpose_str] = purposes.get(purpose_str, 0) + 1
     
     if purposes:
         report += "\n### 서비스 목적 분포\n"
