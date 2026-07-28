@@ -34,6 +34,29 @@ def clean_json_response(response: str) -> str:
     response = re.sub(r'```json\s*', '', response)
     response = re.sub(r'```\s*', '', response)
     
+    # Remove common LLM explanations that might appear before JSON
+    # Patterns like "Here is the extracted information:", "Document 1:", etc.
+    before_patterns = [
+        r'Here is the extracted information',
+        r'Here is the output of the extracted',
+        r'Here is the extracted data',
+        r'Here is the output',
+        r'I\'ll extract the structured information',
+        r'After analyzing the content',
+        r'After analyzing',
+        r'\*\*Document',
+        r'Document \d+:',
+        r'Output for Document',
+    ]
+    
+    for pattern in before_patterns:
+        # Find the last occurrence of the pattern
+        matches = list(re.finditer(pattern, response, re.IGNORECASE))
+        if matches:
+            # Keep everything after the last match
+            last_match = matches[-1]
+            response = response[last_match.end():]
+    
     # Remove common LLM explanations that might appear after JSON
     # Look for patterns like "Note that..." or "However..." after the JSON
     explanation_patterns = [
@@ -51,6 +74,8 @@ def clean_json_response(response: str) -> str:
         r'\n\nNote:',
         r'\n\nSince the documents',
         r'\n\nHowever, since',
+        r'\n\n\*\*',
+        r'\n\n\*',
     ]
     
     for pattern in explanation_patterns:
@@ -106,6 +131,35 @@ def parse_json_with_recovery(json_str: str) -> list[dict] | None:
         
         # Attempt 3: Remove control characters
         cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', json_str)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+        
+        # Attempt 4: Try to extract JSON objects one by one from malformed response
+        try:
+            # Find all {...} patterns and try to parse them
+            obj_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+            objects = re.findall(obj_pattern, json_str)
+            if objects:
+                parsed_objects = []
+                for obj_str in objects:
+                    try:
+                        obj = json.loads(obj_str)
+                        if isinstance(obj, dict):
+                            parsed_objects.append(obj)
+                    except:
+                        continue
+                if parsed_objects:
+                    LOGGER.info(f"Recovered {len(parsed_objects)} objects from malformed JSON")
+                    return parsed_objects
+        except:
+            pass
+        
+        # Attempt 5: Try to fix common JSON syntax errors
+        # Remove extra commas before closing brackets
+        cleaned = re.sub(r',\s*]', ']', json_str)
+        cleaned = re.sub(r',\s*\}', '}', cleaned)
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:
@@ -174,26 +228,50 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
     prompt_parts.append("- Extract AI service CASES, do not summarize the document.")
     prompt_parts.append("- Only return AI services that are clearly identifiable as operational systems or applications.")
     prompt_parts.append("\nVALID organization names (must be actual institution names):")
-    prompt_parts.append("- 한국도로공사, 근로복지공단, 인천국제공항공사, etc.")
-    prompt_parts.append("\nINVALID organization names (generic terms):")
-    prompt_parts.append("- 공공기관, 정부, 기관, 문서 제목, 보도자료 제목")
+    prompt_parts.append("- 한국도로공사, 근로복지공단, 인천국제공항공사, 한국조폐공사, 해양환경공단, 한국지능정보사회진흥원(NIA), 행정안전부, 서울특별시")
+    prompt_parts.append("\nINVALID organization names (generic terms - NEVER use these):")
+    prompt_parts.append("- 공공기관, 정부, 기관, 문서 제목, 보도자료 제목, 기금관리형 준정부기관, city government")
+    prompt_parts.append("- If you cannot identify a specific institution name, return null for organization")
     prompt_parts.append("\nVALID service_name (actual AI service/system names):")
-    prompt_parts.append("- 포트홀 감지 AI, 직업추천 AI, AI 민원상담 챗봇")
-    prompt_parts.append("\nINVALID service_name (abstract concepts):")
-    prompt_parts.append("- AI 전환, AI 활용, AX, AI 정책, AI 교육")
+    prompt_parts.append("- 포트홀 감지 AI, 직업추천 AI, AI 민원상담 챗봇, 유해해양생물 조기 경보시스템, AI기반 해파리 폴립 관리")
+    prompt_parts.append("- AI를 활용한 해양쓰레기 분포조사·수거, AI학습을 통한 모바일 신분증 안면인식 품질개선")
+    prompt_parts.append("\nINVALID service_name (abstract concepts - NEVER use these):")
+    prompt_parts.append("- AI 전환, AI 활용, AX, AI 정책, AI 교육, AI, Artificial Intelligence, ANI, AGI, LLM")
+    prompt_parts.append("- Generative AI, AI technology, AI policy, AI strategy, AI utilization, AI transformation")
+    prompt_parts.append("- 챗봇, ChatGPT, 업무 자동화, 맞춤형 서비스 제공, 데이터 기반 의사 결정, 주민과의 상호작용과 소통 강화")
+    prompt_parts.append("- 범정부 인공지능 공통 기반, RAG(검색 증강 생성), 공공 인공지능(AI) 서비스 지원 사업")
+    prompt_parts.append("- 공공부문 AI 도입·활용 가이드라인, 공공 AI 서비스 실증사례집")
     prompt_parts.append("\nVALID service_name types:")
     prompt_parts.append("- an AI system, AI application, AI platform, AI assistant, AI chatbot, AI solution, named AI model used operationally")
+    prompt_parts.append("- Must be a SPECIFIC, NAMED system or application")
     prompt_parts.append("\nDo NOT treat these as service names:")
     prompt_parts.append("- AI, AX, AI transformation, Artificial Intelligence, ANI, AGI, LLM, Generative AI, AI technology, AI policy, AI strategy, AI utilization")
+    prompt_parts.append("- Generic terms like 챗봇, 업무 자동화, 맞춤형 서비스")
+    prompt_parts.append("- Policy names, guide names, report names")
     prompt_parts.append("\nExamples:")
     prompt_parts.append('Document: "ANI (Artificial Narrow Intelligence) is..."')
-    prompt_parts.append("Output: [] (no service)")
+    prompt_parts.append("Output: [] (no service - ANI is a concept, not a service)")
     prompt_parts.append("")
-    prompt_parts.append('Document: "ChatGPT is used by the city government"')
-    prompt_parts.append('Output: [{"organization": "city government", "service_name": "ChatGPT", "purpose": null, "source_url": "...", "source_title": "..."}]')
+    prompt_parts.append('Document: "AI 전환(AI Transformation, AX)을 추진하고 있다"')
+    prompt_parts.append("Output: [] (no service - AI 전환/AX is a policy/concept, not a service)")
     prompt_parts.append("")
-    prompt_parts.append('Document: "포트홀 감지 AI"')
-    prompt_parts.append('Output: [{"organization": "...", "service_name": "포트홀 감지 AI", "purpose": "포트홀 자동 탐지", "source_url": "...", "source_title": "..."}]')
+    prompt_parts.append('Document: "한국도로공사는 포트홀 감지 AI를 운영한다"')
+    prompt_parts.append('Output: [{"organization": "한국도로공사", "service_name": "포트홀 감지 AI", "purpose": "포트홀 자동 탐지", "source_url": "...", "source_title": "..."}]')
+    prompt_parts.append("")
+    prompt_parts.append('Document: "해양환경공단은 유해해양생물 조기 경보시스템(AI기반 해파리 폴립 관리)을 운영한다"')
+    prompt_parts.append('Output: [{"organization": "해양환경공단", "service_name": "유해해양생물 조기 경보시스템(AI기반 해파리 폴립 관리)", "purpose": null, "source_url": "...", "source_title": "..."}]')
+    prompt_parts.append("")
+    prompt_parts.append('Document: "공공기관 AI 활용 현황을 알리오에 공시한다"')
+    prompt_parts.append("Output: [] (no specific service mentioned)")
+    prompt_parts.append("")
+    prompt_parts.append('Document: "AI 정부 서비스 사례집을 발간했다"')
+    prompt_parts.append("Output: [] (사례집 is a document/report, not a service)")
+    prompt_parts.append("")
+    prompt_parts.append('Document: "챗봇을 도입하여 민원 상담을 자동화한다"')
+    prompt_parts.append("Output: [] (챗봇 is too generic - need specific service name)")
+    prompt_parts.append("")
+    prompt_parts.append('Document: "AI 민원상담 챗봇 서비스를 제공한다"')
+    prompt_parts.append('Output: [{"organization": "...", "service_name": "AI 민원상담 챗봇", "purpose": "민원 상담 자동화", "source_url": "...", "source_title": "..."}]')
     prompt_parts.append("\npurpose extraction:")
     prompt_parts.append("- Extract purpose directly from sentences when possible.")
     prompt_parts.append("- Examples: 포트홀 자동 탐지, 민원 상담 자동화, 실시간 혼잡도 예측")
@@ -203,7 +281,15 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
     prompt_parts.append("- Example: [[{...}, {...}], [{...}], [], [{...}]]")
     prompt_parts.append("- Each sub-array corresponds to one document in the same order.")
     prompt_parts.append("- Empty array [] means no AI services found in that document.")
-    prompt_parts.append("\nReturn ONLY valid JSON. No explanations, no markdown code blocks.")
+    prompt_parts.append("\nCRITICAL OUTPUT REQUIREMENTS:")
+    prompt_parts.append("- Return ONLY the JSON array. NOTHING ELSE.")
+    prompt_parts.append("- Do NOT include any text before the JSON array.")
+    prompt_parts.append("- Do NOT include any text after the JSON array.")
+    prompt_parts.append("- Do NOT include markdown code blocks (```json ... ```).")
+    prompt_parts.append("- Do NOT include explanations like 'Here is the extracted information'.")
+    prompt_parts.append("- Do NOT include document labels like 'Document 1:'.")
+    prompt_parts.append("- Start your response with [ and end with ].")
+    prompt_parts.append("- Your entire response must be valid JSON that can be parsed directly.")
     
     prompt = "\n".join(prompt_parts)
     
