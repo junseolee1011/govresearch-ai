@@ -139,7 +139,7 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
     for i, doc in enumerate(docs, 1):
         title = doc.get("title", "")
         url = doc.get("url", "")
-        content = doc.get("content", "")[:1000]  # Longer content for better extraction
+        content = doc.get("content", "")[:3000]  # Longer content for better extraction (Llama 3.1 8B can handle this)
         
         # Log document details before extraction
         print(f"\nDocument {i}:")
