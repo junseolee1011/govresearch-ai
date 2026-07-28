@@ -259,13 +259,22 @@ def generate_organization_inventory_from_facts(facts: list[dict]) -> str:
     if not facts:
         return "조직 정보를 찾을 수 없습니다.\n"
     
+    # Filter out facts with None organization or service_name
+    valid_facts = [f for f in facts if f.get("organization") and f.get("service_name")]
+    
+    if not valid_facts:
+        return "유효한 조직 정보를 찾을 수 없습니다.\n"
+    
     report = "| 기관명 | 서비스명 | 목적 |\n"
     report += "| --- | --- | --- |\n"
     
-    for fact in facts:
+    for fact in valid_facts:
         org = fact.get("organization", "알 수 없음")
         service = fact.get("service_name", "알 수 없음")
-        purpose = fact.get("purpose", "알 수 없음")
+        purpose = fact.get("purpose")
+        # Use '미확인' for missing purpose, not None
+        if not purpose:
+            purpose = "미확인"
         report += f"| {org} | {service} | {purpose} |\n"
     
     return report
@@ -280,18 +289,21 @@ def generate_domestic_cases_from_facts(facts: list[dict]) -> str:
     Returns:
         Domestic cases text.
     """
-    # Since we removed country field, all facts are treated as domestic
-    if not facts:
+    # Filter out facts with None organization or service_name
+    valid_facts = [f for f in facts if f.get("organization") and f.get("service_name")]
+    
+    if not valid_facts:
         return "국내 사례를 찾을 수 없습니다.\n"
     
     report = ""
-    for fact in facts:
+    for fact in valid_facts:
         org = fact.get("organization", "알 수 없음")
         service = fact.get("service_name", "알 수 없음")
-        purpose = fact.get("purpose", "")
-        report += f"- **{org}**: {service} ({purpose})\n"
+        purpose = fact.get("purpose")
         if purpose:
-            report += f"  - 목적: {purpose[:100]}...\n"
+            report += f"- **{org}**: {service} ({purpose})\n"
+        else:
+            report += f"- **{org}**: {service} (미확인)\n"
     
     return report
 
@@ -331,25 +343,28 @@ def generate_implementation_patterns_from_facts(facts: list[dict]) -> str:
     Returns:
         Implementation patterns text.
     """
-    # Since we removed service_type field, this section is simplified
-    if not facts:
+    # Filter out facts with None organization or service_name
+    valid_facts = [f for f in facts if f.get("organization") and f.get("service_name")]
+    
+    if not valid_facts:
         return "구현 패턴 분석을 위한 데이터가 부족합니다.\n"
     
-    report = f"총 {len(facts)}개의 AI 서비스 구현 사례가 분석되었습니다.\n"
+    report = f"총 {len(valid_facts)}개의 AI 서비스 구현 사례가 분석되었습니다.\n"
     
-    # Analyze purposes instead of service types
+    # Analyze purposes, excluding null values
     purposes = {}
-    for fact in facts:
-        purpose = fact.get("purpose", "알 수 없음")
-        # Handle cases where purpose might be a list
-        if isinstance(purpose, list):
-            for p in purpose:
-                if p:
-                    p_str = str(p)
-                    purposes[p_str] = purposes.get(p_str, 0) + 1
-        else:
-            purpose_str = str(purpose)
-            purposes[purpose_str] = purposes.get(purpose_str, 0) + 1
+    for fact in valid_facts:
+        purpose = fact.get("purpose")
+        if purpose:  # Only include non-null purposes
+            # Handle cases where purpose might be a list
+            if isinstance(purpose, list):
+                for p in purpose:
+                    if p:
+                        p_str = str(p)
+                        purposes[p_str] = purposes.get(p_str, 0) + 1
+            else:
+                purpose_str = str(purpose)
+                purposes[purpose_str] = purposes.get(purpose_str, 0) + 1
     
     if purposes:
         report += "\n### 서비스 목적 분포\n"
@@ -368,18 +383,21 @@ def generate_recommendations_from_facts(facts: list[dict]) -> str:
     Returns:
         Recommendations based on facts.
     """
-    # Simplified recommendations based on available fields
-    if not facts:
+    # Filter out facts with None organization or service_name
+    valid_facts = [f for f in facts if f.get("organization") and f.get("service_name")]
+    
+    if not valid_facts:
         return "추천사항을 생성하기에 충분한 데이터가 없습니다.\n"
     
-    total_count = len(facts)
+    total_count = len(valid_facts)
     report = f"분석된 {total_count}개의 AI 서비스 구현 사례를 기반으로 다음과 같은 추천사항을 제안합니다.\n\n"
     
-    # Analyze purposes
+    # Analyze purposes, excluding null values
     purposes = {}
-    for fact in facts:
-        purpose = fact.get("purpose", "알 수 없음")
-        purposes[purpose] = purposes.get(purpose, 0) + 1
+    for fact in valid_facts:
+        purpose = fact.get("purpose")
+        if purpose:  # Only include non-null purposes
+            purposes[purpose] = purposes.get(purpose, 0) + 1
     
     if purposes:
         dominant_purpose = max(purposes.items(), key=lambda x: x[1])

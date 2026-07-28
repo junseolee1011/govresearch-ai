@@ -70,12 +70,16 @@ def extract_article_text_beautifulsoup(url: str, timeout: int = 10) -> tuple[str
         response.raise_for_status()
         
         # Try to detect encoding from response
-        if response.encoding == 'ISO-8859-1':
+        if response.encoding == 'ISO-8859-1' or response.encoding is None:
             # Common fallback for misconfigured servers
             response.encoding = response.apparent_encoding
         
-        # Parse HTML
-        soup = BeautifulSoup(response.text, "html.parser")
+        # Ensure UTF-8 encoding for proper Korean text handling
+        if response.encoding != 'utf-8' and response.apparent_encoding == 'utf-8':
+            response.encoding = 'utf-8'
+        
+        # Parse HTML with explicit encoding
+        soup = BeautifulSoup(response.content.decode(response.encoding or 'utf-8', errors='replace'), "html.parser")
         
         # Special handling for Naver blogs
         if "blog.naver.com" in url:

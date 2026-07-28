@@ -156,77 +156,54 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
     
     print("========================\n")
     
-    prompt_parts.append("\n\nFor each document, extract these fields as a JSON array:")
+    prompt_parts.append("\n\nFor each document, extract ALL AI service cases mentioned.")
+    prompt_parts.append("- Each document may contain 0, 1, or multiple AI services.")
+    prompt_parts.append("- Return a JSON array of objects, one for each AI service found in the document.")
+    prompt_parts.append("- If no AI services are found in a document, return an empty array [] for that document.")
+    prompt_parts.append("- Do NOT use document title as service name.")
+    prompt_parts.append("\nFor each AI service case, extract these fields:")
     prompt_parts.append("- organization: Name of the organization/institution (STRING, not list)")
-    prompt_parts.append("- service_name: Name of the AI service (STRING, not list. If multiple services, pick the most prominent one)")
-    prompt_parts.append("- purpose: Purpose of the AI service (STRING, not list. If multiple purposes, pick the main one)")
+    prompt_parts.append("- service_name: Name of the AI service (STRING, not list)")
+    prompt_parts.append("- purpose: Purpose of the AI service (STRING, not list)")
     prompt_parts.append("- source_url: URL of the source")
     prompt_parts.append("- source_title: Title of the source")
     prompt_parts.append("\nIMPORTANT INSTRUCTIONS:")
-    prompt_parts.append("- For every document, return exactly one JSON object.")
-    prompt_parts.append("- All fields must be STRINGS or null, never lists or arrays.")
     prompt_parts.append("- Only extract information that is EXPLICITLY stated in the document.")
     prompt_parts.append("- NEVER infer or invent service names, organization names, or purposes.")
-    prompt_parts.append("- If the document does not explicitly mention an AI service, return 'service_name': null.")
     prompt_parts.append("- Do NOT create names like 'AI 민원시스템', 'AI 전환', 'AI 플랫폼', 'AI 서비스' unless those exact names appear in the document.")
-    prompt_parts.append("\nVALID service_name must be one of the following:")
-    prompt_parts.append("- an AI system")
-    prompt_parts.append("- an AI application")
-    prompt_parts.append("- an AI platform")
-    prompt_parts.append("- an AI assistant")
-    prompt_parts.append("- an AI chatbot")
-    prompt_parts.append("- an AI solution")
-    prompt_parts.append("- a named AI model used operationally")
+    prompt_parts.append("- Extract AI service CASES, do not summarize the document.")
+    prompt_parts.append("- Only return AI services that are clearly identifiable as operational systems or applications.")
+    prompt_parts.append("\nVALID organization names (must be actual institution names):")
+    prompt_parts.append("- 한국도로공사, 근로복지공단, 인천국제공항공사, etc.")
+    prompt_parts.append("\nINVALID organization names (generic terms):")
+    prompt_parts.append("- 공공기관, 정부, 기관, 문서 제목, 보도자료 제목")
+    prompt_parts.append("\nVALID service_name (actual AI service/system names):")
+    prompt_parts.append("- 포트홀 감지 AI, 직업추천 AI, AI 민원상담 챗봇")
+    prompt_parts.append("\nINVALID service_name (abstract concepts):")
+    prompt_parts.append("- AI 전환, AI 활용, AX, AI 정책, AI 교육")
+    prompt_parts.append("\nVALID service_name types:")
+    prompt_parts.append("- an AI system, AI application, AI platform, AI assistant, AI chatbot, AI solution, named AI model used operationally")
     prompt_parts.append("\nDo NOT treat these as service names:")
-    prompt_parts.append("- AI")
-    prompt_parts.append("- AX")
-    prompt_parts.append("- AI transformation")
-    prompt_parts.append("- Artificial Intelligence")
-    prompt_parts.append("- ANI")
-    prompt_parts.append("- AGI")
-    prompt_parts.append("- LLM")
-    prompt_parts.append("- Generative AI")
-    prompt_parts.append("- AI technology")
-    prompt_parts.append("- AI policy")
-    prompt_parts.append("- AI strategy")
-    prompt_parts.append("- AI utilization")
+    prompt_parts.append("- AI, AX, AI transformation, Artificial Intelligence, ANI, AGI, LLM, Generative AI, AI technology, AI policy, AI strategy, AI utilization")
     prompt_parts.append("\nExamples:")
     prompt_parts.append('Document: "ANI (Artificial Narrow Intelligence) is..."')
-    prompt_parts.append("Output: service_name = null")
+    prompt_parts.append("Output: [] (no service)")
     prompt_parts.append("")
     prompt_parts.append('Document: "ChatGPT is used by the city government"')
-    prompt_parts.append("Output: service_name = ChatGPT")
+    prompt_parts.append('Output: [{"organization": "city government", "service_name": "ChatGPT", "purpose": null, "source_url": "...", "source_title": "..."}]')
     prompt_parts.append("")
     prompt_parts.append('Document: "포트홀 감지 AI"')
-    prompt_parts.append("Output: service_name = 포트홀 감지 AI")
-    prompt_parts.append("\npurpose is REQUIRED whenever possible.")
-    prompt_parts.append("- Extract the business objective of the AI service.")
-    prompt_parts.append("- Examples:")
-    prompt_parts.append("  포트홀 감지 AI → detect potholes automatically")
-    prompt_parts.append("  직업추천 AI → recommend suitable occupations")
-    prompt_parts.append("  민원 챗봇 → answer citizen inquiries")
-    prompt_parts.append("  OCR 시스템 → digitize paper documents")
+    prompt_parts.append('Output: [{"organization": "...", "service_name": "포트홀 감지 AI", "purpose": "포트홀 자동 탐지", "source_url": "...", "source_title": "..."}]')
+    prompt_parts.append("\npurpose extraction:")
+    prompt_parts.append("- Extract purpose directly from sentences when possible.")
+    prompt_parts.append("- Examples: 포트홀 자동 탐지, 민원 상담 자동화, 실시간 혼잡도 예측")
     prompt_parts.append("- If no purpose is mentioned, return null.")
-    prompt_parts.append("- If the document only discusses AI policy, AI strategy, AI governance, or AI adoption, and does not introduce a concrete AI service, return:")
-    prompt_parts.append('  {"organization": "...", "service_name": null, "purpose": null, "source_url": "...", "source_title": "..."}')
-    prompt_parts.append("- Only return null for ALL fields if the document has NO mention of any AI service or organization.")
-    prompt_parts.append("- The number of JSON objects MUST equal the number of input documents.")
-    prompt_parts.append("- If there are 5 documents, return exactly 5 objects.")
-    prompt_parts.append("- Each object corresponds to one document in the same order.")
-    prompt_parts.append("- Do not omit documents. Every document must have a corresponding JSON object.")
-    prompt_parts.append("\nReturn ONLY ONE JSON ARRAY.")
-    prompt_parts.append("Correct format:")
-    prompt_parts.append('  [\n   {...},\n   {...},\n   {...}\n  ]')
-    prompt_parts.append("Wrong format:")
-    prompt_parts.append('  Document 1\n  [...]\n\n  Document 2\n  [...]')
-    prompt_parts.append("\nNever include:")
-    prompt_parts.append("- explanations")
-    prompt_parts.append("- markdown")
-    prompt_parts.append("- code fences")
-    prompt_parts.append("- headings")
-    prompt_parts.append("- notes")
-    prompt_parts.append('- "Document 1"')
-    prompt_parts.append('- "Here are..."')
+    prompt_parts.append("\nReturn format:")
+    prompt_parts.append("- Return a JSON array where each element is an array of AI service cases for one document.")
+    prompt_parts.append("- Example: [[{...}, {...}], [{...}], [], [{...}]]")
+    prompt_parts.append("- Each sub-array corresponds to one document in the same order.")
+    prompt_parts.append("- Empty array [] means no AI services found in that document.")
+    prompt_parts.append("\nReturn ONLY valid JSON. No explanations, no markdown code blocks.")
     
     prompt = "\n".join(prompt_parts)
     
@@ -268,52 +245,85 @@ def extract_facts_batch(docs: list[dict], llm) -> list[dict]:
             LOGGER.warning(f"Expected list but got {type(facts)}, skipping batch")
             return []
         
-        # Ensure we have the right number of facts
-        if len(facts) != len(docs):
-            LOGGER.warning(f"Expected {len(docs)} facts but got {len(facts)}, adjusting")
-            # Truncate if too many, pad with None if too few
-            if len(facts) > len(docs):
-                facts = facts[:len(docs)]
-            else:
-                # Add None for missing facts (will be filtered out later)
-                while len(facts) < len(docs):
-                    facts.append(None)
-        
-        # Process facts and ensure all fields exist
+        # Handle new format: [[{...}, {...}], [{...}], [], [{...}]]
+        # Each sub-array corresponds to one document
         valid_facts = []
-        for i, (fact, doc) in enumerate(zip(facts, docs)):
-            if fact is None:
-                LOGGER.warning(f"Fact {i+1} is None, skipping")
-                continue
-            
-            # Ensure required fields exist
-            fact.setdefault("organization", None)
-            fact.setdefault("service_name", None)
-            fact.setdefault("purpose", None)
-            fact.setdefault("source_url", doc.get("url", ""))
-            
-            # Handle source_title encoding - use original title if LLM returns corrupted text
-            llm_title = fact.get("source_title", "")
-            original_title = doc.get("title", "")
-            
-            # If LLM title is significantly different or corrupted, use original
-            if not llm_title or len(llm_title) < len(original_title) * 0.5:
-                fact["source_title"] = original_title
-            else:
-                fact["source_title"] = llm_title
-            
-            # Convert lists to strings (LLM sometimes returns lists)
-            for field in ["organization", "service_name", "purpose"]:
-                value = fact.get(field)
-                if isinstance(value, list):
-                    # Join list elements with comma, or pick first if only one
-                    if len(value) == 1:
-                        fact[field] = str(value[0])
+        
+        # Check if facts is a list of lists (new format)
+        if facts and isinstance(facts[0], list):
+            # New format: flatten nested arrays
+            for i, (doc_facts, doc) in enumerate(zip(facts, docs)):
+                if not isinstance(doc_facts, list):
+                    LOGGER.warning(f"Document {i+1} facts is not a list, skipping")
+                    continue
+                
+                for fact in doc_facts:
+                    if fact is None:
+                        continue
+                    
+                    # Ensure required fields exist
+                    fact.setdefault("organization", None)
+                    fact.setdefault("service_name", None)
+                    fact.setdefault("purpose", None)
+                    fact.setdefault("source_url", doc.get("url", ""))
+                    
+                    # Handle source_title encoding - use original title if LLM returns corrupted text
+                    llm_title = fact.get("source_title", "")
+                    original_title = doc.get("title", "")
+                    
+                    # If LLM title is significantly different or corrupted, use original
+                    if not llm_title or len(llm_title) < len(original_title) * 0.5:
+                        fact["source_title"] = original_title
                     else:
-                        fact[field] = ", ".join(str(v) for v in value if v)
-                    LOGGER.debug(f"Converted list to string for {field}: {fact[field]}")
-            
-            valid_facts.append(fact)
+                        fact["source_title"] = llm_title
+                    
+                    # Convert lists to strings (LLM sometimes returns lists)
+                    for field in ["organization", "service_name", "purpose"]:
+                        value = fact.get(field)
+                        if isinstance(value, list):
+                            # Join list elements with comma, or pick first if only one
+                            if len(value) == 1:
+                                fact[field] = str(value[0])
+                            else:
+                                fact[field] = ", ".join(str(v) for v in value if v)
+                            LOGGER.debug(f"Converted list to string for {field}: {fact[field]}")
+                    
+                    valid_facts.append(fact)
+        else:
+            # Old format: single list of objects (backward compatibility)
+            for i, (fact, doc) in enumerate(zip(facts, docs)):
+                if fact is None:
+                    LOGGER.warning(f"Fact {i+1} is None, skipping")
+                    continue
+                
+                # Ensure required fields exist
+                fact.setdefault("organization", None)
+                fact.setdefault("service_name", None)
+                fact.setdefault("purpose", None)
+                fact.setdefault("source_url", doc.get("url", ""))
+                
+                # Handle source_title encoding - use original title if LLM returns corrupted text
+                llm_title = fact.get("source_title", "")
+                original_title = doc.get("title", "")
+                
+                # If LLM title is significantly different or corrupted, use original
+                if not llm_title or len(llm_title) < len(original_title) * 0.5:
+                    fact["source_title"] = original_title
+                else:
+                    fact["source_title"] = llm_title
+                
+                # Convert lists to strings (LLM sometimes returns lists)
+                for field in ["organization", "service_name", "purpose"]:
+                    value = fact.get(field)
+                    if isinstance(value, list):
+                        # Join list elements with comma, or pick first if only one
+                        if len(value) == 1:
+                            fact[field] = str(value[0])
+                        else:
+                            fact[field] = ", ".join(str(v) for v in value if v)
+                        LOGGER.debug(f"Converted list to string for {field}: {fact[field]}")
+                
+                valid_facts.append(fact)
         
         LOGGER.info(f"Parsed {len(valid_facts)} facts from batch of {len(docs)} documents")
         return valid_facts

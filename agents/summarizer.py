@@ -59,11 +59,11 @@ def make_summarize_findings(settings: Settings):
                     retrieved_context = "검색된 지식이 없습니다."
                     LOGGER.info("No retrieved documents available")
 
-                # Extract structured facts
-                facts = state.get("extracted_facts", [])
+                # Extract structured facts - use validated_facts only
+                facts = state.get("validated_facts", [])
                 if not facts:
-                    summary = "추출된 팩트가 없습니다."
-                    LOGGER.warning("No facts to summarize")
+                    summary = "검증된 팩트가 없습니다."
+                    LOGGER.warning("No validated facts to summarize")
                     return {"search_summary": summary}
 
                 # Build facts summary
@@ -76,24 +76,26 @@ def make_summarize_findings(settings: Settings):
 
                 topic = state.get("topic", "연구 주제")
 
-                # Generate summary from facts
-                prompt = f"""다음 추출된 구조화된 팩트를 바탕으로 연구 주제에 대한 통합 요약을 작성하세요.
+                # Generate summary from validated facts only
+                prompt = f"""다음 검증된 팩트를 바탕으로 연구 주제에 대한 통합 요약을 작성하세요.
 
 연구 주제: {topic}
 
-검색된 지식 (Retrieved Context):
-{retrieved_context}
-
-추출된 팩트 (Extracted Facts):
+검증된 팩트 (Validated Facts):
 {facts_text}
 
 요약은 다음 내용을 포함해야 합니다:
 - 주요 조직 및 서비스 현황
 - 서비스 유형별 분포
-- 국내외 사례 비교
 - 공통 구현 패턴
 - 기술 트렌드
 - 성공 요인
+
+중요:
+- 검증된 팩트에 있는 정보만 사용하세요.
+- 검색 문서에서 새로운 사례를 생성하지 마세요.
+- 일반 지식을 추가하지 마세요.
+- 팩트에 없는 기관명이나 서비스명을 작성하지 마세요.
 
 요약은 한국어로 작성하고 3-5문단으로 구성하세요."""
 

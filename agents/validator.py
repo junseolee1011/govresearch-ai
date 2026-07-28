@@ -23,7 +23,7 @@ def validate_fact(fact: dict) -> tuple[bool, str]:
     Returns:
         Tuple of (is_valid, rejection_reason).
     """
-    # Required: at least organization OR service_name must be present
+    # Required: both organization AND service_name must be present
     org = fact.get("organization")
     service = fact.get("service_name")
     
@@ -35,8 +35,33 @@ def validate_fact(fact: dict) -> tuple[bool, str]:
             return any(item for item in field if item)
         return bool(field)
     
-    if not has_value(org) and not has_value(service):
-        return False, "both organization and service_name are empty"
+    # Reject if organization is null
+    if not has_value(org):
+        return False, "organization is null"
+    
+    # Reject if service_name is null
+    if not has_value(service):
+        return False, "service_name is null"
+    
+    # Reject generic organization names
+    generic_org_terms = ["공공기관", "정부", "기관", "문서 제목", "보도자료 제목"]
+    if isinstance(org, str):
+        for term in generic_org_terms:
+            if term in org:
+                return False, f"organization contains generic term: {term}"
+    
+    # Reject abstract service_name concepts
+    invalid_service_terms = ["AI 전환", "AI 활용", "AX", "AI 정책", "AI 교육", "AI", "Artificial Intelligence", "ANI", "AGI", "LLM", "Generative AI", "AI technology", "AI strategy", "AI utilization"]
+    if isinstance(service, str):
+        for term in invalid_service_terms:
+            if term in service:
+                return False, f"service_name contains abstract concept: {term}"
+    
+    # Reject if service_name equals document title
+    source_title = fact.get("source_title", "")
+    if isinstance(service, str) and isinstance(source_title, str):
+        if service == source_title:
+            return False, "service_name equals document title"
     
     # source_url is required
     if not fact.get("source_url"):
