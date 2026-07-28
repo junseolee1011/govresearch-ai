@@ -91,7 +91,7 @@ def generate_insufficient_data_report(facts: list[dict]) -> str:
 
 
 def build_report_from_facts(state: ResearchState, facts: list[dict]) -> str:
-    """Build report structure from validated facts only.
+    """Build simplified report structure from validated facts only.
     
     Args:
         state: Workflow state with research data.
@@ -101,178 +101,86 @@ def build_report_from_facts(state: ResearchState, facts: list[dict]) -> str:
         Complete Markdown report.
     """
     topic = state["topic"]
-    search_queries = state.get("search_queries", [])
-    search_summary = state.get("search_summary", "")
-    reflection_metrics = state.get("reflection_metrics", {})
     
     # Build report sections
     report = "# GovResearch-AI 연구 보고서\n\n"
     
     # Executive Summary
     report += "## Executive Summary\n"
-    report += generate_executive_summary_from_facts(topic, facts, search_summary)
+    report += generate_executive_summary_from_facts(topic, facts)
     report += "\n"
     
-    # Research Objective
-    report += "## 연구 목표\n"
-    report += f"{topic}\n\n"
-    
-    # Methodology
-    report += "## Methodology\n"
-    report += generate_real_methodology(search_queries, reflection_metrics)
+    # AI 서비스 목록
+    report += "## AI 서비스 목록\n"
+    report += generate_service_list_from_facts(facts)
     report += "\n"
     
-    # Search Strategy
-    report += "## Search Strategy\n"
-    for i, query in enumerate(search_queries, 1):
-        report += f"{i}. {query}\n"
+    # 사례 요약
+    report += "## 사례 요약\n"
+    report += generate_case_summary_from_facts(facts)
     report += "\n"
     
-    # Organization Inventory
-    report += "## Organization Inventory\n"
-    report += generate_organization_inventory_from_facts(facts)
-    report += "\n"
-    
-    # Domestic Cases
-    report += "## Domestic Cases\n"
-    report += generate_domestic_cases_from_facts(facts)
-    report += "\n"
-    
-    # International Cases
-    report += "## International Cases\n"
-    report += generate_international_cases_from_facts(facts)
-    report += "\n"
-    
-    # Technology Stack
-    report += "## Technology Stack\n"
-    report += generate_technology_stack_from_facts(facts)
-    report += "\n"
-    
-    # Implementation Patterns
-    report += "## Implementation Patterns\n"
-    report += generate_implementation_patterns_from_facts(facts)
-    report += "\n"
-    
-    # Key Findings
-    report += "## Key Findings\n"
-    report += search_summary
-    report += "\n\n"
-    
-    # Recommendations (only if we have enough facts)
-    if len(facts) >= 5:
-        report += "## Recommendations\n"
-        report += generate_recommendations_from_facts(facts)
-        report += "\n"
-    
-    # Limitations
-    report += "## Limitations\n"
-    report += generate_limitations_from_facts(facts, reflection_metrics)
-    report += "\n"
-    
-    # References with citations
+    # References
     report += "## References\n"
     report += generate_references_from_facts(facts)
     
     return report
 
 
-def generate_executive_summary_from_facts(topic: str, facts: list[dict], summary: str) -> str:
-    """Generate executive summary from facts.
+def generate_executive_summary_from_facts(topic: str, facts: list[dict]) -> str:
+    """Generate executive summary from validated facts only.
     
     Args:
         topic: Research topic.
         facts: Validated facts.
-        summary: Search summary.
         
     Returns:
         Executive summary.
     """
-    # Handle cases where organization or service_name might be lists
-    orgs = []
-    services = []
+    if not facts:
+        return f"본 연구는 '{topic}'에 대한 조사를 수행했습니다.\n\n검증된 AI 서비스 사례를 찾을 수 없습니다.\n"
+    
+    # Count unique organizations and services
+    orgs = set()
+    services = set()
     for f in facts:
         org = f.get("organization")
         if org:
-            if isinstance(org, list):
-                orgs.extend([str(o) for o in org if o])
-            else:
-                orgs.append(str(org))
+            orgs.add(str(org))
         
         service = f.get("service_name")
         if service:
-            if isinstance(service, list):
-                services.extend([str(s) for s in service if s])
-            else:
-                services.append(str(service))
+            services.add(str(service))
     
-    org_count = len(set(orgs))
-    service_count = len(set(services))
+    org_count = len(orgs)
+    service_count = len(services)
     
     report = f"본 연구는 '{topic}'에 대한 조사를 수행했습니다.\n\n"
     report += f"총 {org_count}개 기관의 {service_count}개 AI 서비스를 식별했습니다.\n\n"
-    report += summary
+    report += "이 보고서는 검증된 팩트만을 기반으로 작성되었습니다.\n"
     
     return report
 
 
-def generate_real_methodology(queries: list[str], metrics: dict) -> str:
-    """Generate real methodology description.
-    
-    Args:
-        queries: Search queries used.
-        metrics: Reflection metrics.
-        
-    Returns:
-        Real methodology description.
-    """
-    report = "### 검색 엔진\n"
-    report += "- Tavily (웹 검색)\n\n"
-    
-    report += "### LLM\n"
-    report += "- Qwen3 via Ollama (로컬 추론)\n\n"
-    
-    report += "### 리트리버\n"
-    report += "- ChromaDB (벡터 데이터베이스)\n\n"
-    
-    report += "### 리플렉션\n"
-    report += "- 활성화됨 (품질 평가)\n\n"
-    
-    report += "### 팩트 검증\n"
-    report += "- 활성화됨 (데이터 검증)\n\n"
-    
-    report += "### 검색 쿼리\n"
-    for i, query in enumerate(queries, 1):
-        report += f"{i}. {query}\n"
-    
-    return report
-
-
-def generate_organization_inventory_from_facts(facts: list[dict]) -> str:
-    """Generate organization inventory from facts.
+def generate_service_list_from_facts(facts: list[dict]) -> str:
+    """Generate service list table from validated facts.
     
     Args:
         facts: Validated facts.
         
     Returns:
-        Organization inventory table.
+        Service list table.
     """
     if not facts:
-        return "조직 정보를 찾을 수 없습니다.\n"
+        return "AI 서비스 목록을 찾을 수 없습니다.\n"
     
-    # Filter out facts with None organization or service_name
-    valid_facts = [f for f in facts if f.get("organization") and f.get("service_name")]
-    
-    if not valid_facts:
-        return "유효한 조직 정보를 찾을 수 없습니다.\n"
-    
-    report = "| 기관명 | 서비스명 | 목적 |\n"
+    report = "| 기관 | 서비스 | 목적 |\n"
     report += "| --- | --- | --- |\n"
     
-    for fact in valid_facts:
+    for fact in facts:
         org = fact.get("organization", "알 수 없음")
         service = fact.get("service_name", "알 수 없음")
         purpose = fact.get("purpose")
-        # Use '미확인' for missing purpose, not None
         if not purpose:
             purpose = "미확인"
         report += f"| {org} | {service} | {purpose} |\n"
@@ -280,157 +188,27 @@ def generate_organization_inventory_from_facts(facts: list[dict]) -> str:
     return report
 
 
-def generate_domestic_cases_from_facts(facts: list[dict]) -> str:
-    """Generate domestic cases from facts.
+def generate_case_summary_from_facts(facts: list[dict]) -> str:
+    """Generate case summary from validated facts.
     
     Args:
         facts: Validated facts.
         
     Returns:
-        Domestic cases text.
+        Case summary text.
     """
-    # Filter out facts with None organization or service_name
-    valid_facts = [f for f in facts if f.get("organization") and f.get("service_name")]
-    
-    if not valid_facts:
-        return "국내 사례를 찾을 수 없습니다.\n"
+    if not facts:
+        return "사례 요약을 찾을 수 없습니다.\n"
     
     report = ""
-    for fact in valid_facts:
+    for fact in facts:
         org = fact.get("organization", "알 수 없음")
         service = fact.get("service_name", "알 수 없음")
         purpose = fact.get("purpose")
         if purpose:
-            report += f"- **{org}**: {service} ({purpose})\n"
+            report += f"- **{org}**: {service} - {purpose}\n"
         else:
-            report += f"- **{org}**: {service} (미확인)\n"
-    
-    return report
-
-
-def generate_international_cases_from_facts(facts: list[dict]) -> str:
-    """Generate international cases from facts.
-    
-    Args:
-        facts: Validated facts.
-        
-    Returns:
-        International cases text.
-    """
-    # Since we removed country field, we cannot distinguish international cases
-    return "국제 사례 분석은 현재 스키마에서 지원되지 않습니다.\n"
-
-
-def generate_technology_stack_from_facts(facts: list[dict]) -> str:
-    """Generate technology stack from facts.
-    
-    Args:
-        facts: Validated facts.
-        
-    Returns:
-        Technology stack text.
-    """
-    # Since we removed technology, llm_model, and rag fields, this section is simplified
-    return "기술 스택 분석은 현재 스키마에서 지원되지 않습니다.\n"
-
-
-def generate_implementation_patterns_from_facts(facts: list[dict]) -> str:
-    """Generate implementation patterns from facts.
-    
-    Args:
-        facts: Validated facts.
-        
-    Returns:
-        Implementation patterns text.
-    """
-    # Filter out facts with None organization or service_name
-    valid_facts = [f for f in facts if f.get("organization") and f.get("service_name")]
-    
-    if not valid_facts:
-        return "구현 패턴 분석을 위한 데이터가 부족합니다.\n"
-    
-    report = f"총 {len(valid_facts)}개의 AI 서비스 구현 사례가 분석되었습니다.\n"
-    
-    # Analyze purposes, excluding null values
-    purposes = {}
-    for fact in valid_facts:
-        purpose = fact.get("purpose")
-        if purpose:  # Only include non-null purposes
-            # Handle cases where purpose might be a list
-            if isinstance(purpose, list):
-                for p in purpose:
-                    if p:
-                        p_str = str(p)
-                        purposes[p_str] = purposes.get(p_str, 0) + 1
-            else:
-                purpose_str = str(purpose)
-                purposes[purpose_str] = purposes.get(purpose_str, 0) + 1
-    
-    if purposes:
-        report += "\n### 서비스 목적 분포\n"
-        for purpose, count in sorted(purposes.items(), key=lambda x: x[1], reverse=True):
-            report += f"- {purpose}: {count}개\n"
-    
-    return report
-
-
-def generate_recommendations_from_facts(facts: list[dict]) -> str:
-    """Generate recommendations from facts only.
-    
-    Args:
-        facts: Validated facts.
-        
-    Returns:
-        Recommendations based on facts.
-    """
-    # Filter out facts with None organization or service_name
-    valid_facts = [f for f in facts if f.get("organization") and f.get("service_name")]
-    
-    if not valid_facts:
-        return "추천사항을 생성하기에 충분한 데이터가 없습니다.\n"
-    
-    total_count = len(valid_facts)
-    report = f"분석된 {total_count}개의 AI 서비스 구현 사례를 기반으로 다음과 같은 추천사항을 제안합니다.\n\n"
-    
-    # Analyze purposes, excluding null values
-    purposes = {}
-    for fact in valid_facts:
-        purpose = fact.get("purpose")
-        if purpose:  # Only include non-null purposes
-            purposes[purpose] = purposes.get(purpose, 0) + 1
-    
-    if purposes:
-        dominant_purpose = max(purposes.items(), key=lambda x: x[1])
-        report += f"가장 일반적인 서비스 목적은 '{dominant_purpose[0]}'으로 {dominant_purpose[1]}개 사례에서 확인되었습니다. "
-        report += "이를 참고하여 유사한 목적의 서비스 구현을 고려할 수 있습니다.\n\n"
-    
-    report += f"분석된 {total_count}개 기관의 구현 사례를 벤치마킹하여 서비스 기획에 활용하십시오.\n"
-    
-    return report
-
-
-def generate_limitations_from_facts(facts: list[dict], metrics: dict) -> str:
-    """Generate limitations from facts.
-    
-    Args:
-        facts: Validated facts.
-        metrics: Reflection metrics.
-        
-    Returns:
-        Limitations text.
-    """
-    fact_count = len(facts)
-    org_count = len(set(f.get("organization") for f in facts if f.get("organization")))
-    
-    report = f"본 연구는 {fact_count}개의 검증된 팩트와 {org_count}개의 조직을 기반으로 수행되었습니다.\n\n"
-    
-    if fact_count < 10:
-        report += "데이터 수집 범위가 제한적입니다.\n\n"
-    
-    report += "품질 지표:\n"
-    for k, v in metrics.items():
-        if isinstance(v, (int, float)):
-            report += f"- {k}: {v}\n"
+            report += f"- **{org}**: {service}\n"
     
     return report
 

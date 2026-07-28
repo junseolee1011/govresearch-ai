@@ -25,40 +25,16 @@ def make_summarize_findings(settings: Settings):
     """
 
     def summarize_findings(state: ResearchState) -> dict[str, str]:
-        """Generate a concise research summary using extracted facts.
+        """Generate a concise research summary using validated facts only.
 
         Args:
-            state: Workflow state with extracted facts and retrieved documents.
+            state: Workflow state with validated facts.
 
         Returns:
             State update containing the generated summary.
         """
         with log_node_execution("summarizer") as metrics:
             try:
-                llm = get_llm(settings)
-
-                # Extract retrieved documents
-                retrieved_docs = state.get("retrieved_documents", [])
-                
-                # Build retrieved context
-                retrieved_context = ""
-                if retrieved_docs:
-                    context_snippets = []
-                    for doc in retrieved_docs[:5]:  # Limit to top 5 retrieved docs
-                        # Handle both Document objects and dictionaries
-                        if hasattr(doc, 'title'):
-                            title = doc.title
-                            content = doc.content
-                        else:
-                            title = doc.get('title', '')
-                            content = doc.get('content', '')
-                        context_snippets.append(f"- {title}: {content[:300]}")
-                    retrieved_context = "\n".join(context_snippets)
-                    LOGGER.info(f"Using {len(retrieved_docs)} retrieved documents in summary")
-                else:
-                    retrieved_context = "검색된 지식이 없습니다."
-                    LOGGER.info("No retrieved documents available")
-
                 # Extract structured facts - use validated_facts only
                 facts = state.get("validated_facts", [])
                 if not facts:
@@ -76,40 +52,19 @@ def make_summarize_findings(settings: Settings):
 
                 topic = state.get("topic", "연구 주제")
 
-                # Generate summary from validated facts only
-                prompt = f"""다음 검증된 팩트를 바탕으로 연구 주제에 대한 통합 요약을 작성하세요.
+                # Generate simple summary from validated facts only
+                summary = f"연구 주제: {topic}\n\n"
+                summary += f"검증된 팩트 수: {len(facts)}\n\n"
+                summary += "주요 AI 서비스 사례:\n"
+                summary += facts_text
 
-연구 주제: {topic}
-
-검증된 팩트 (Validated Facts):
-{facts_text}
-
-요약은 다음 내용을 포함해야 합니다:
-- 주요 조직 및 서비스 현황
-- 서비스 유형별 분포
-- 공통 구현 패턴
-- 기술 트렌드
-- 성공 요인
-
-중요:
-- 검증된 팩트에 있는 정보만 사용하세요.
-- 검색 문서에서 새로운 사례를 생성하지 마세요.
-- 일반 지식을 추가하지 마세요.
-- 팩트에 없는 기관명이나 서비스명을 작성하지 마세요.
-
-요약은 한국어로 작성하고 3-5문단으로 구성하세요."""
-
-                LOGGER.debug("Summarizer prompt length: %d characters", len(prompt))
-
-                summary = llm.invoke(prompt)
                 metrics["response_length"] = len(summary)
                 metrics["fact_count"] = len(facts)
 
                 LOGGER.info(
-                    "Summarizer generated summary (%d characters) from %d facts and %d retrieved documents",
+                    "Summarizer generated summary (%d characters) from %d facts",
                     len(summary),
                     len(facts),
-                    len(retrieved_docs),
                 )
                 return {"search_summary": summary}
 

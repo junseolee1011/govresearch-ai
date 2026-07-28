@@ -8,7 +8,6 @@ from langgraph.graph import END, START, StateGraph
 
 from agents.fact_extractor import make_extract_facts
 from agents.planner import plan_research
-from agents.reflection import make_reflect, should_research_again
 from agents.report_writer import make_write_report
 from agents.researcher import conduct_research
 from agents.retriever import retrieve_documents, should_search_web
@@ -123,15 +122,6 @@ def build_research_graph(settings: Settings) -> object:
         validate_facts = make_validate_facts(settings)
         return validate_facts(state)
 
-    def reflection_node(state: ResearchState) -> dict[str, object]:
-        """Evaluate research quality."""
-        reflect = make_reflect(settings)
-        return reflect(state)
-
-    def reflection_decision_node(state: ResearchState) -> str:
-        """Decide whether to research again based on reflection."""
-        return should_research_again(state)
-
     def summarizer_node(state: ResearchState) -> dict[str, str]:
         """Wrapper for summarizer to inject settings."""
         summarize_findings = make_summarize_findings(settings)
@@ -153,7 +143,6 @@ def build_research_graph(settings: Settings) -> object:
     workflow.add_node("content_enricher", content_enricher_node)
     workflow.add_node("fact_extractor", fact_extractor_node)
     workflow.add_node("validator", validator_node)
-    workflow.add_node("reflection", reflection_node)
     workflow.add_node("summarizer", summarizer_node)
     workflow.add_node("report_writer", report_writer_node)
     
@@ -179,18 +168,7 @@ def build_research_graph(settings: Settings) -> object:
     workflow.add_edge("deduplicator", "content_enricher")
     workflow.add_edge("content_enricher", "fact_extractor")
     workflow.add_edge("fact_extractor", "validator")
-    workflow.add_edge("validator", "reflection")
-    
-    # Conditional edge: decide whether to research again based on reflection
-    workflow.add_conditional_edges(
-        "reflection",
-        reflection_decision_node,
-        {
-            "research_again": "researcher",
-            "continue": "summarizer",
-        },
-    )
-    
+    workflow.add_edge("validator", "summarizer")
     workflow.add_edge("summarizer", "report_writer")
     workflow.add_edge("report_writer", END)
     

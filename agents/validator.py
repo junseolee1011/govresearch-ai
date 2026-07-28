@@ -15,7 +15,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 def validate_fact(fact: dict) -> tuple[bool, str]:
-    """Validate a single fact.
+    """Validate a single fact with simplified rules.
     
     Args:
         fact: Fact dictionary to validate.
@@ -23,58 +23,20 @@ def validate_fact(fact: dict) -> tuple[bool, str]:
     Returns:
         Tuple of (is_valid, rejection_reason).
     """
-    # Required: both organization AND service_name must be present
+    # Required: has_service must be true
+    has_service = fact.get("has_service", False)
+    if not has_service:
+        return False, "has_service is false"
+    
+    # Required: organization must be present and not null
     org = fact.get("organization")
+    if org is None or (isinstance(org, str) and not org.strip()):
+        return False, "organization is null or empty"
+    
+    # Required: service_name must be present and not null
     service = fact.get("service_name")
-    
-    # Handle list types - check if any element is truthy
-    def has_value(field):
-        if field is None:
-            return False
-        if isinstance(field, list):
-            return any(item for item in field if item)
-        return bool(field)
-    
-    # Reject if organization is null
-    if not has_value(org):
-        return False, "organization is null"
-    
-    # Reject if service_name is null
-    if not has_value(service):
-        return False, "service_name is null"
-    
-    # Reject generic organization names
-    generic_org_terms = ["공공기관", "정부", "기관", "문서 제목", "보도자료 제목"]
-    if isinstance(org, str):
-        for term in generic_org_terms:
-            if term in org:
-                return False, f"organization contains generic term: {term}"
-    
-    # Reject abstract service_name concepts
-    invalid_service_terms = ["AI 전환", "AI 활용", "AX", "AI 정책", "AI 교육", "AI", "Artificial Intelligence", "ANI", "AGI", "LLM", "Generative AI", "AI technology", "AI strategy", "AI utilization"]
-    if isinstance(service, str):
-        for term in invalid_service_terms:
-            if term in service:
-                return False, f"service_name contains abstract concept: {term}"
-    
-    # Reject if service_name equals document title
-    source_title = fact.get("source_title", "")
-    if isinstance(service, str) and isinstance(source_title, str):
-        if service == source_title:
-            return False, "service_name equals document title"
-    
-    # source_url is required
-    if not fact.get("source_url"):
-        return False, "missing source_url"
-    
-    # Validate URL format
-    try:
-        from urllib.parse import urlparse
-        parsed = urlparse(fact["source_url"])
-        if not parsed.scheme or not parsed.netloc:
-            return False, f"invalid URL format: {fact['source_url']}"
-    except Exception as e:
-        return False, f"invalid URL parsing: {str(e)}"
+    if service is None or (isinstance(service, str) and not service.strip()):
+        return False, "service_name is null or empty"
     
     return True, ""
 
@@ -94,53 +56,48 @@ def validate_facts(facts: list[dict]) -> tuple[list[dict], list[dict]]:
     # Track seen combinations to detect duplicates
     seen = set()
     
-    # Stage 6 Debug: Every rejected fact with reason
     print("\n========================")
-    print("Stage 6")
+    print("Validator Results")
     print("========================")
-    print("Rejected facts:")
     
-    for fact in facts:
+    for i, fact in enumerate(facts, 1):
         # Validate required fields
         is_valid, reason = validate_fact(fact)
+        
+        org = fact.get("organization", "N/A")
+        service = fact.get("service_name", "N/A")
+        url = fact.get("source_url", "N/A")
+        
+        print(f"\nFact {i}:")
+        print(f"  Organization: {org}")
+        print(f"  Service Name: {service}")
+        print(f"  URL: {url}")
+        
         if not is_valid:
-            org = fact.get("organization", "unknown")
-            url = fact.get("source_url", "unknown")
             LOGGER.warning(f"Rejected fact from {org} ({url}): {reason}")
-            print(f"Rejected: {reason}")
-            print(f"  Organization: {org}")
-            print(f"  URL: {url}")
+            print(f"  Validator Result: REJECTED")
+            print(f"  Reject Reason: {reason}")
             rejected.append(fact)
-            continue
-        
-        # Check for duplicates (organization + source_url)
-        key = (fact["organization"], fact["source_url"])
-        if key in seen:
-            org = fact.get("organization", "unknown")
-            url = fact.get("source_url", "unknown")
-            LOGGER.warning(f"Rejected duplicate fact: {org} ({url})")
-            print(f"Rejected: duplicate")
-            print(f"  Organization: {org}")
-            print(f"  URL: {url}")
-            rejected.append(fact)
-            continue
-        
-        seen.add(key)
-        validated.append(fact)
+        else:
+            # Check for duplicates (organization + source_url)
+            key = (fact["organization"], fact["source_url"])
+            if key in seen:
+                LOGGER.warning(f"Rejected duplicate fact: {org} ({url})")
+                print(f"  Validator Result: REJECTED")
+                print(f"  Reject Reason: duplicate")
+                rejected.append(fact)
+            else:
+                seen.add(key)
+                validated.append(fact)
+                print(f"  Validator Result: ACCEPTED")
     
+    print("\n========================")
+    print(f"Total facts: {len(facts)}")
+    print(f"Validated: {len(validated)}")
+    print(f"Rejected: {len(rejected)}")
     print("========================\n")
     
     LOGGER.info(f"Validated {len(validated)} facts, rejected {len(rejected)} facts")
-    LOGGER.info(f"Rejected fact count: {len(rejected)}")
-    
-    # Stage 7 Debug: Summary counts
-    print("\n========================")
-    print("Stage 7")
-    print("========================")
-    print(f"Extracted facts: {len(facts)}")
-    print(f"Validated facts: {len(validated)}")
-    print(f"Rejected facts: {len(rejected)}")
-    print("========================\n")
     
     return validated, rejected
 
