@@ -29,6 +29,7 @@ class Settings:
     search_max_results: int
     search_topic: str
     embedding_model: str
+    reranker_model: str
     chroma_path: Path
     retrieval_k: int
     similarity_threshold: float
@@ -52,7 +53,7 @@ def get_settings() -> Settings:
             "DEFAULT_RESEARCH_TOPIC",
             "AI services used by public institutions",
         ),
-        ollama_model=os.getenv("OLLAMA_MODEL", "qwen3:8b"),
+        ollama_model=os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
         ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         temperature=float(os.getenv("TEMPERATURE", "0.2")),
         top_p=float(os.getenv("TOP_P", "0.9")),
@@ -61,6 +62,7 @@ def get_settings() -> Settings:
         search_max_results=int(os.getenv("SEARCH_MAX_RESULTS", "5")),
         search_topic=os.getenv("SEARCH_TOPIC", "general"),
         embedding_model=os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"),
+        reranker_model=os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3"),
         chroma_path=chroma_path,
         retrieval_k=int(os.getenv("RETRIEVAL_K", "5")),
         similarity_threshold=float(os.getenv("SIMILARITY_THRESHOLD", "0.75")),

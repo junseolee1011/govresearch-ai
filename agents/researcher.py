@@ -1,576 +1,290 @@
-"""Research agent with Tavily web search integration."""
+"""Research agent for PoC with MCP-based tool invocation and document chunking."""
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+import re
 
 from app.state import ResearchState
 from config.settings import Settings
-from tools.document_fetcher import fetch_document
-from tools.ollama_client import get_llm
-from tools.prompt_loader import load_prompt
-from tools.tavily_search import TavilySearchError, search_web
-
-if TYPE_CHECKING:
-    from config.settings import Settings as SettingsType
-
 
 
 LOGGER = logging.getLogger(__name__)
 
 
-def conduct_research(state: ResearchState, settings: Settings) -> dict[str, object]:
-    """Perform web searches using Tavily based on the research plan.
+def conduct_research(state: ResearchState, settings: Settings, mcp_client=None) -> dict[str, object]:
+    """Perform research using MCP Client for tool invocation with rule-based tool selection.
 
     Args:
-        state: Workflow state containing topic and research plan.
-        settings: Application settings with Tavily configuration.
+        state: Workflow state containing topic and search queries.
+        settings: Application settings.
+        mcp_client: MCP Client instance for tool invocation.
 
     Returns:
-        State update containing search queries, results, and structured data.
+        State update containing search results and local documents.
     """
-    _ = load_prompt("researcher.txt")
+    search_queries = state.get("search_queries", [])
     topic = state["topic"]
-    plan = state["plan"]
     
-    # Initialize LLM client for service name extraction (with fallback)
-    try:
-        llm = get_llm(settings)
-    except Exception as e:
-        LOGGER.warning(f"Failed to initialize LLM for service name extraction: {e}. Using fallback only.")
-        llm = None
-
-    # Generate 3-5 search queries based on the research plan
-    search_queries = generate_search_queries(topic, plan)
-    LOGGER.info("Generated %d search queries for topic: %s", len(search_queries), topic)
-    for i, query in enumerate(search_queries, 1):
-        LOGGER.debug("Query %d: %s", i, query)
-
-    # Perform web searches for each query
-    all_results = []
-    for query in search_queries:
-        try:
-            LOGGER.info("Starting Tavily search for query: %s", query)
-            search_response = search_web(query, settings)
-            all_results.extend(search_response["results"])
-            LOGGER.info("Tavily search completed for query: %s, results: %d", query, len(search_response["results"]))
-        except TavilySearchError as e:
-            LOGGER.error("Tavily search failed for query '%s': %s", query, str(e))
-            # Continue with remaining queries as per requirements
-            continue
-
-    # Remove duplicate URLs
-    seen_urls = set()
-    unique_results = []
-    for result in all_results:
-        url = result["url"]
-        if url not in seen_urls:
-            seen_urls.add(url)
-            unique_results.append(result)
-
-    duplicates_removed = len(all_results) - len(unique_results)
-    LOGGER.info("Removed %d duplicate URLs, %d unique results remain", duplicates_removed, len(unique_results))
+    if not search_queries:
+        LOGGER.warning("No search queries provided, using topic as query")
+        search_queries = [topic]
     
-    # Fetch full document content for each URL
-    LOGGER.info("Starting document content fetching for %d URLs", len(unique_results))
-    for result in unique_results:
-        url = result["url"]
-        snippet_length = len(result.get("content", ""))
-        print(f"\n--- Document Fetch ---")
-        print(f"URL: {url}")
-        print(f"Snippet Length: {snippet_length}")
+    # Initialize results containers
+    web_results = []
+    local_documents = []
+    document_chunks = []
+    
+    # Use MCP Client if available
+    if mcp_client:
+        LOGGER.info("Using MCP Client for research")
         
-        fallback_content = result.get("content", "")
-        try:
-            fetched_content = fetch_document(url, fallback_content=fallback_content)
-            result["content"] = fetched_content
-            fetched_length = len(fetched_content)
-            print(f"Fetched Content Length: {fetched_length}")
-            
-            if fetched_length <= 500:
-                print(f"WARNING: Fetched content is too short ({fetched_length} <= 500 chars)")
-            
-            LOGGER.info(f"Fetched content for {url}: {fetched_length} characters")
-        except Exception as e:
-            LOGGER.warning(f"Failed to fetch content for {url}: {e}, using fallback")
-            result["content"] = fallback_content
-            print(f"Fetched Content Length: {len(fallback_content)} (fallback)")
-            print(f"WARNING: Using fallback content due to exception")
-        print("--------------------\n")
+        # Rule-based tool selection
+        use_filesystem = should_use_filesystem(topic)
+        use_tavily = should_use_tavily(topic)
+        
+        LOGGER.info(f"Tool selection: Filesystem={use_filesystem}, Tavily={use_tavily}")
+        
+        # Call Filesystem MCP if needed
+        if use_filesystem:
+            local_documents, document_chunks = fetch_local_documents(mcp_client, topic)
+        
+        # Call Tavily MCP if needed
+        if use_tavily:
+            web_results = fetch_web_results(mcp_client, search_queries)
     
-    # Stage 1 Debug: Tavily results with fetched content
-    print("\n========================")
-    print("Stage 1")
-    print("========================")
-    print(f"Number of Tavily results: {len(unique_results)}")
-    print("Content shown below is what will be passed to Extractor")
-    print("\nFirst 3 results:")
-    for i, result in enumerate(unique_results[:3], 1):
-        print(f"\nResult {i}:")
-        print(f"  Title: {result.get('title', 'N/A')}")
-        print(f"  URL: {result.get('url', 'N/A')}")
-        content_length = len(result.get('content', ''))
-        print(f"  Content Length (passed to Extractor): {content_length}")
-        if content_length <= 500:
-            print(f"  WARNING: Content is too short for extraction ({content_length} <= 500 chars)")
-        print(f"  First 500 chars: {result.get('content', 'N/A')[:500]}...")
-    print("========================\n")
+    else:
+        LOGGER.warning("MCP Client not provided, skipping MCP-based research")
+    
+    # Remove duplicate URLs from web results
+    seen_urls = set()
+    unique_web_results = []
+    for result in web_results:
+        url = result.get("url")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            unique_web_results.append(result)
 
-    # Log source breakdown
-    source_breakdown = {}
-    for result in unique_results:
-        source_type = result["source_type"]
-        source_breakdown[source_type] = source_breakdown.get(source_type, 0) + 1
-    LOGGER.info("Source breakdown: %s", source_breakdown)
-
-    # Convert search results to legacy sources format for compatibility
-    sources = convert_to_sources_format(unique_results, llm)
-
-    # Generate findings from search results
-    findings = generate_findings_from_results(unique_results, topic)
+    duplicates_removed = len(web_results) - len(unique_web_results)
+    LOGGER.info("Removed %d duplicate URLs, %d unique web results remain", duplicates_removed, len(unique_web_results))
 
     LOGGER.info(
-        "Researcher completed: %d search queries, %d unique results, %d sources, %d findings",
+        "Researcher completed: %d search queries, %d web results, %d local documents, %d chunks",
         len(search_queries),
-        len(unique_results),
-        len(sources),
-        len(findings),
+        len(unique_web_results),
+        len(local_documents),
+        len(document_chunks),
     )
 
     return {
-        "search_queries": search_queries,
-        "search_results": unique_results,
-        "sources": sources,
-        "findings": findings,
+        "search_results": unique_web_results,
+        "local_documents": local_documents,
+        "document_chunks": document_chunks,
     }
 
 
-def generate_search_queries(topic: str, plan: list[str]) -> list[str]:
-    """Generate 3-5 search queries based on research plan.
+def should_use_filesystem(topic: str) -> bool:
+    """Determine if Filesystem MCP should be used based on topic.
 
     Args:
         topic: Research topic.
-        plan: Research questions from planner.
 
     Returns:
-        List of search query strings.
+        True if Filesystem MCP should be used.
     """
-    queries = [topic]  # Start with the main topic
-
-    # Add queries based on research plan items
-    for i, question in enumerate(plan[:2]):  # Take first 2 questions to avoid too many queries
-        # Extract key terms from the question
-        if "AI" in question or "인공지능" in question:
-            query = f"{topic} 구축 사례"
-            if query not in queries:
-                queries.append(query)
-        if "서비스" in question or "service" in question.lower():
-            query = f"{topic} 실제 서비스 구현"
-            if query not in queries:
-                queries.append(query)
-        if "성숙도" in question or "maturity" in question.lower():
-            query = f"{topic} 운영 현황"
-            if query not in queries:
-                queries.append(query)
-
-    # Add specific queries for actual service implementations
-    specific_queries = [
-        f"{topic} 챗봇 구축 사례",
-        f"{topic} AI 서비스 도입 성공 사례"
+    # Keywords that suggest local document search
+    filesystem_keywords = [
+        "보고서", "요약", "사례", "현황", "정책", "가이드",
+        "report", "summary", "case", "status", "policy", "guide"
     ]
     
-    for query in specific_queries:
-        if query not in queries and len(queries) < 5:
-            queries.append(query)
-
-    # Ensure we have 3-5 unique queries
-    while len(queries) < 3:
-        query = f"{topic} 실제 적용 사례"
-        if query not in queries:
-            queries.append(query)
-        else:
-            queries.append(f"{topic} 구현 현황")
-
-    return queries[:5]  # Limit to 5 queries
-
-
-def clean_text(text: str) -> str:
-    """Clean text by removing markdown formatting and special characters.
+    topic_lower = topic.lower()
+    for keyword in filesystem_keywords:
+        if keyword in topic_lower:
+            return True
     
+    return False
+
+
+def should_use_tavily(topic: str) -> bool:
+    """Determine if Tavily MCP should be used based on topic.
+
     Args:
-        text: Raw text.
-        
+        topic: Research topic.
+
     Returns:
-        Cleaned text.
+        True if Tavily MCP should be used.
     """
-    import re
+    # Keywords that suggest web search
+    tavily_keywords = [
+        "뉴스", "최신", "기사", "동향", "트렌드",
+        "news", "latest", "article", "trend"
+    ]
     
-    # Remove markdown headers
-    text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
+    topic_lower = topic.lower()
+    for keyword in tavily_keywords:
+        if keyword in topic_lower:
+            return True
     
-    # Remove markdown bold/italic
-    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
-    text = re.sub(r'\*([^*]+)\*', r'\1', text)
-    
-    # Remove markdown links
-    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-    
-    # Remove extra whitespace
-    text = re.sub(r'\s+', ' ', text)
-    
-    # Remove special characters but keep Korean and basic punctuation
-    text = re.sub(r'[^\w\s\.,?!-:;()가-힣]', '', text)
-    
-    return text.strip()
+    # Default: use Tavily for general queries
+    return True
 
 
-def extract_service_name_llm(title: str, content: str, llm) -> str:
-    """Extract actual AI service name from content using LLM.
-    
+def fetch_local_documents(mcp_client, topic: str):
+    """Fetch local documents using Filesystem MCP and chunk them.
+
     Args:
-        title: Full title.
-        content: Content that may contain actual service names.
-        llm: Ollama LLM instance for inference.
-        
+        mcp_client: MCP Client instance.
+        topic: Research topic (used to determine which files to read).
+
     Returns:
-        Extracted service name.
+        Tuple of (local_documents, document_chunks).
     """
-    if not content:
-        return extract_service_name_fallback(title)
-    
-    # Use LLM to extract actual service names
-    prompt = f"""다음 텍스트에서 공공기관이 실제로 구축한 AI 서비스의 구체적인 이름 하나만 추출하세요.
-예: "민원상담 AI 어시스턴트", "챗경북", "RAG 플랫폼" 같은 구체적인 서비스 이름만 추출하세요.
-일반적인 용어(공공, 정부, AI, 생성형, 챗봇 등)나 문장 조각은 제외하세요.
-여러 서비스 이름이 있으면 가장 처음에 나오는 하나만 추출하세요.
-
-제목: {title}
-내용: {content[:300]}
-
-서비스 이름 하나만 출력하세요. 찾을 수 없으면 "알 수 없음"이라고 출력하세요."""
+    local_documents = []
+    document_chunks = []
     
     try:
-        response = llm.invoke(prompt)
-        service_name = response.strip()
+        LOGGER.info("[MCP] Calling Filesystem MCP to list files in data/")
+        list_result = mcp_client.call_tool("filesystem", "list_files", directory="data")
         
-        # Clean and validate the response
-        if service_name and service_name not in ['알 수 없음', '공공', '정부', '국내', '해외', '생성형', 'AI', '인공지능', '챗봇']:
-            # Further clean the response
-            cleaned = clean_text(service_name)
-            # Remove any commas or separators that might indicate multiple services
-            cleaned = cleaned.split(',')[0].split('、')[0].strip()
-            if len(cleaned) >= 2 and len(cleaned) <= 20:
-                return cleaned
-    except Exception as e:
-        LOGGER.warning(f"LLM service name extraction failed: {e}")
-    
-    return extract_service_name_fallback(title)
-
-
-def extract_service_name_fallback(title: str) -> str:
-    """Fallback service name extraction using title only.
-    
-    Args:
-        title: Full title.
-        
-    Returns:
-        Cleaned service name.
-    """
-    import re
-    
-    # Remove common suffixes/prefixes that are not part of the service name
-    patterns_to_remove = [
-        r'\s*-\s*[가-힣A-Za-z\s]+$',  # Remove trailing "- Publisher Name"
-        r'\s*\.\.\.$',  # Remove trailing "..."
-        r'\s*블로그$',  # Remove "블로그"
-        r'\s*뉴스$',  # Remove "뉴스"
-        r'\s*보도$',  # Remove "보도"
-        r'\s*기사$',  # Remove "기사"
-        r'\s*리포트$',  # Remove "리포트"
-        r'\s*연구$',  # Remove "연구"
-        r'\s*보고서$',  # Remove "보고서"
-        r'\s*현황$',  # Remove "현황"
-        r'\s*분석$',  # Remove "분석"
-        r'\s*구축$',  # Remove "구축"
-        r'\s*사례$',  # Remove "사례"
-    ]
-    
-    cleaned = title
-    for pattern in patterns_to_remove:
-        cleaned = re.sub(pattern, '', cleaned)
-    
-    # If title is too long, try to extract the main part
-    if len(cleaned) > 50:
-        # Look for common patterns and extract the meaningful part
-        # Remove everything after common separators
-        for separator in [' - ', ' | ', ' : ', ' > ']:
-            if separator in cleaned:
-                parts = cleaned.split(separator)
-                # Take the first part as it's usually the main title
-                cleaned = parts[0]
-                break
-    
-    # Apply general cleaning
-    cleaned = clean_text(cleaned)
-    
-    # Limit length
-    if len(cleaned) > 40:
-        cleaned = cleaned[:40] + "..."
-    
-    return cleaned if cleaned else title
-
-
-def convert_to_sources_format(search_results: list[dict], llm) -> list[dict[str, str]]:
-    """Convert search results to legacy sources format.
-
-    Args:
-        search_results: Normalized search results from Tavily.
-        llm: Ollama client for LLM-based service name extraction (can be None).
-
-    Returns:
-        List of source records in legacy format.
-    """
-    sources = []
-    for result in search_results:
-        # Extract more specific information from the search result
-        title = result["title"]
-        content = result.get("content", "")
-        url = result["url"]
-        source_type = result["source_type"]
-        
-        # Try to extract more specific service type from content
-        service_type = extract_service_type(title, content)
-        
-        # Try to extract use case from content
-        use_case = extract_use_case(content)
-        
-        # Try to extract maturity level from content
-        maturity = extract_maturity(content)
-        
-        # Use LLM-based extraction for actual service names if available, otherwise fallback
-        if llm:
-            service_name = extract_service_name_llm(title, content, llm)
+        if list_result.get("success"):
+            files = list_result.get("files", [])
+            LOGGER.info(f"[MCP] Found {len(files)} files in data/")
+            
+            # Read all files in data/ directory
+            for file_info in files:
+                file_name = file_info["name"]
+                file_path = f"data/{file_name}"
+                
+                # Determine which tool to use based on file extension
+                if file_name.endswith(".pdf"):
+                    result = mcp_client.call_tool("filesystem", "read_pdf", file_path=file_path)
+                elif file_name.endswith(".md"):
+                    result = mcp_client.call_tool("filesystem", "read_markdown", file_path=file_path)
+                else:
+                    result = mcp_client.call_tool("filesystem", "read_text_file", file_path=file_path)
+                
+                if result.get("success"):
+                    content = result["content"]
+                    doc_type = result.get("type", "unknown")
+                    
+                    # Log PDF processing details
+                    if doc_type == "pdf":
+                        pages = result.get("pages", 0)
+                        LOGGER.info(f"[PDF] Pages: {pages}, Extracted characters: {len(content)}")
+                    
+                    # Chunk the content for RAG
+                    chunks = chunk_text(content, chunk_size=1500, overlap=200)
+                    
+                    if not chunks:
+                        LOGGER.warning(f"[PDF] No chunks generated for {file_name} - content may be empty or too short")
+                        # Fallback: store raw content as a single chunk
+                        if content.strip():
+                            chunks = [content]
+                            LOGGER.info(f"[PDF] Fallback: using raw content as single chunk for {file_name}")
+                    
+                    LOGGER.info(f"[PDF] Generated chunks: {len(chunks)}")
+                    
+                    # Store metadata in local_documents
+                    local_documents.append({
+                        "path": result["path"],
+                        "type": doc_type,
+                        "source": "local"
+                    })
+                    
+                    # Add chunks with metadata
+                    for chunk_idx, chunk_content in enumerate(chunks):
+                        document_chunks.append({
+                            "content": chunk_content,
+                            "source": result["path"],
+                            "type": doc_type,
+                            "chunk_id": chunk_idx + 1
+                        })
+                    
+                    LOGGER.info(f"[MCP] Successfully read and chunked local document: {file_name}")
+                else:
+                    LOGGER.warning(f"[MCP] Failed to read {file_name}: {result.get('error')}")
         else:
-            service_name = extract_service_name_fallback(title)
+            LOGGER.warning(f"[MCP] Failed to list files: {list_result.get('error')}")
+            
+    except Exception as e:
+        LOGGER.warning(f"[MCP] Error calling Filesystem MCP: {e}")
+    
+    return local_documents, document_chunks
+
+
+def chunk_text(text: str, chunk_size: int = 1500, overlap: int = 200) -> list[str]:
+    """Split text into overlapping chunks.
+
+    Args:
+        text: Text to chunk.
+        chunk_size: Maximum characters per chunk.
+        overlap: Number of characters to overlap between chunks.
+
+    Returns:
+        List of text chunks.
+    """
+    if not text:
+        return []
+    
+    chunks = []
+    start = 0
+    text_length = len(text)
+    
+    while start < text_length:
+        end = start + chunk_size
         
-        source = {
-            "title": service_name,
-            "url": url,
-            "institution": extract_institution(title, content),
-            "service_type": service_type,
-            "use_case": use_case,
-            "maturity": maturity,
-        }
-        sources.append(source)
-    return sources
-
-
-def extract_institution(title: str, content: str = "") -> str:
-    """Extract institution name from title and content.
-
-    Args:
-        title: Source title.
-        content: Source content.
-
-    Returns:
-        Institution name or default.
-    """
-    # Try to extract from title first
-    text = title + " " + content
-    
-    # Known Korean public institutions (exact matches)
-    known_institutions = [
-        "국회도서관", "국민연금공단", "한국수력원자력", "기획재정부", 
-        "행정안전부", "과학기술정보통신부", "보건복지부", "교육부",
-        "한국지능정보사회진흥원", "한국IDC", "SPRi", "소프트웨어정책연구소",
-        "KISDI", "한국일보", "위키백과", "CIO", "산업종합저널",
-        "한국정책브리핑", "정책브리핑", "국가전략포털", "NIA",
-        "한국지역정보개발원", "한국정보화진흥원", "남부발전", "한국전력거래소",
-        "AI매터스", "폴라리스오피스", "코리아딥", "인더스트리저널"
-    ]
-    
-    for institution in known_institutions:
-        if institution in text:
-            return institution
-    
-    # Try to extract from URL patterns or common patterns (more specific)
-    import re
-    
-    # Look for specific government entity patterns with minimum length
-    gov_patterns = [
-        r"([가-힣]{2,}청)", r"([가-힣]{2,}부)", r"([가-힣]{2,}도청)", r"([가-힣]{2,}시청)", 
-        r"([가-힣]{2,}군청)", r"([가-힣]{2,}구청)", r"([가-힣]{2,}공사)", r"([가-힣]{2,}공단)",
-        r"([가-힣]{2,}원)", r"([가-힣]{2,}센터)", r"([가-힣]{2,}연구소)", r"([가-힣]{2,}대학)",
-        r"([가-힣]{2,}발전)", r"([가-힣]{2,}전력)", r"([가-힣]{2,}진흥원)"
-    ]
-    
-    # Filter out common non-institution words
-    exclude_words = [
-        "수시", "예도", "무엇", "어떤", "이것", "저것", "그것", "방법", "방향", "현황", "사례", "분석", "연구",
-        "제안요청", "공공부", "남부", "폴라리스", "오피스", "블로그", "인스타그램", "클릭", "스마트",
-        "국내", "해외", "글로벌", "세계", "전체", "전체글", "목록", "카테고리", "보기", "상세", "다운로드",
-        "인공지능", "생성형", "서비스", "도입", "구축", "사례", "현황", "분석", "연구", "보고서"
-    ]
-    
-    for pattern in gov_patterns:
-        matches = re.findall(pattern, text)
-        if matches:
-            # Filter out excluded words and return the longest valid match
-            valid_matches = [m for m in matches if m not in exclude_words and len(m) >= 2]
-            if valid_matches:
-                return max(valid_matches, key=len)
-    
-    # Try to extract from common media/news sources
-    media_patterns = [
-        r"([가-힣]{2,}일보)", r"([가-힣]{2,}신문)", r"([가-힣]{2,}뉴스)", r"([가-힣]{2,}타임즈)",
-        r"([가-힣]{2,}저널)", r"([가-힣]{2,}매거진)", r"([가-힣]{2,}리포트)"
-    ]
-    
-    for pattern in media_patterns:
-        matches = re.findall(pattern, text)
-        if matches:
-            valid_matches = [m for m in matches if m not in exclude_words and len(m) >= 2]
-            if valid_matches:
-                return max(valid_matches, key=len)
-    
-    # If still no match, try to return a generic but meaningful name based on content
-    if "공공" in text:
-        return "공공기관"
-    if "정부" in text:
-        return "정부기관"
-    if "연구" in text:
-        return "연구기관"
-    
-    return "알 수 없음"
-
-
-def extract_service_type(title: str, content: str) -> str:
-    """Extract service type from title and content.
-
-    Args:
-        title: Source title.
-        content: Source content.
-
-    Returns:
-        Service type classification.
-    """
-    text = (title + " " + content).lower()
-    
-    service_keywords = {
-        "챗봇": ["챗봇", "chatbot", "대화형", "상담"],
-        "문서 처리": ["문서", "document", "분류", "triage", "자동화"],
-        "분석": ["분석", "analysis", "데이터", "data", "인사이트", "insight"],
-        "번역": ["번역", "translation", "통번역"],
-        "생성": ["생성", "generation", "작성", "writing"],
-    }
-    
-    for service_type, keywords in service_keywords.items():
-        for keyword in keywords:
-            if keyword in text:
-                return service_type
-    
-    return "AI 서비스"
-
-
-def clean_text(text: str) -> str:
-    """Clean text by removing markdown formatting and special characters.
-    
-    Args:
-        text: Raw text.
+        # If this is the last chunk, take all remaining text
+        if end >= text_length:
+            chunks.append(text[start:])
+            break
         
-    Returns:
-        Cleaned text.
-    """
-    import re
+        # Find a good break point (newline or space)
+        chunk = text[start:end]
+        
+        # Try to break at newline
+        last_newline = chunk.rfind('\n')
+        if last_newline > chunk_size // 2:  # Only break if newline is in second half
+            chunk = chunk[:last_newline]
+            end = start + last_newline
+        else:
+            # Try to break at space
+            last_space = chunk.rfind(' ')
+            if last_space > chunk_size // 2:
+                chunk = chunk[:last_space]
+                end = start + last_space
+        
+        chunks.append(chunk.strip())
+        start = end - overlap if end < text_length else text_length
     
-    # Remove markdown headers
-    text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
-    
-    # Remove markdown bold/italic
-    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
-    text = re.sub(r'\*([^*]+)\*', r'\1', text)
-    
-    # Remove markdown links
-    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-    
-    # Remove extra whitespace
-    text = re.sub(r'\s+', ' ', text)
-    
-    # Remove special characters but keep Korean and basic punctuation
-    text = re.sub(r'[^\w\s\.,?!-:;()가-힣]', '', text)
-    
-    return text.strip()
+    # Filter out empty chunks
+    return [c for c in chunks if c]
 
 
-def extract_use_case(content: str) -> str:
-    """Extract use case from content.
+def fetch_web_results(mcp_client, search_queries: list[str]) -> list[dict]:
+    """Fetch web results using Tavily MCP.
 
     Args:
-        content: Source content.
+        mcp_client: MCP Client instance.
+        search_queries: List of search queries.
 
     Returns:
-        Use case description.
+        List of web search results.
     """
-    if not content:
-        return "알 수 없음"
+    web_results = []
     
-    # Clean the content first
-    cleaned = clean_text(content)
+    for query in search_queries:
+        try:
+            LOGGER.info(f"[MCP] Calling Tavily MCP for query: {query}")
+            search_result = mcp_client.call_tool("tavily", "search", query=query, max_results=5)
+            
+            if search_result.get("success"):
+                web_results.extend(search_result["results"])
+                LOGGER.info(f"[MCP] Tavily MCP completed for query: {query}, results: {len(search_result['results'])}")
+            else:
+                LOGGER.error(f"[MCP] Tavily MCP failed for query '{query}': {search_result.get('error')}")
+        except Exception as e:
+            LOGGER.error(f"[MCP] Error calling Tavily MCP: {e}")
+            continue
     
-    # Return first 100 characters as use case
-    return cleaned[:100] if len(cleaned) > 100 else cleaned
-
-
-def extract_maturity(content: str) -> str:
-    """Extract maturity level from content.
-
-    Args:
-        content: Source content.
-
-    Returns:
-        Maturity level classification.
-    """
-    if not content:
-        return "알 수 없음"
-    
-    text = content.lower()
-    
-    maturity_keywords = {
-        "운영 중": ["운영", "operation", "서비스", "service", "배포", "deployed"],
-        "파일럿": ["파일럿", "pilot", "시범", "test"],
-        "프로토타입": ["프로토타입", "prototype", "개발", "development"],
-    }
-    
-    for maturity, keywords in maturity_keywords.items():
-        for keyword in keywords:
-            if keyword in text:
-                return maturity
-    
-    return "알 수 없음"
-
-
-def generate_findings_from_results(search_results: list[dict], topic: str) -> list[str]:
-    """Generate findings from search results.
-
-    Args:
-        search_results: Normalized search results from Tavily.
-        topic: Research topic.
-
-    Returns:
-        List of finding statements.
-    """
-    findings = [
-        f"{topic}에 대한 웹 검색을 통해 {len(search_results)}개의 관련 결과를 수집했습니다.",
-    ]
-
-    # Add source type findings
-    source_types = set(result["source_type"] for result in search_results)
-    if source_types:
-        findings.append(f"수집된 출처 유형: {', '.join(source_types)}")
-
-    # Add content-based findings
-    if search_results:
-        findings.append("검색 결과는 다양한 공공기관의 AI 서비스 도입 사례와 현황을 포함하고 있습니다.")
-
-    return findings
+    return web_results

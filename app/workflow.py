@@ -20,7 +20,8 @@ def run_research(topic: str, settings: Settings) -> dict[str, object]:
         Completed workflow state.
     """
     graph = build_research_graph(settings)
-    result = graph.invoke({"topic": topic})
+    # Include settings in the initial state so nodes can access it
+    result = graph.invoke({"topic": topic, "settings": settings})
     report = str(result["report"])
     settings.reports_directory.mkdir(parents=True, exist_ok=True)
     safe_topic = re.sub(r"[^a-z0-9]+", "-", topic.lower()).strip("-")[:50]

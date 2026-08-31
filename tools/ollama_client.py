@@ -56,9 +56,33 @@ def get_llm(settings: Settings) -> OllamaLLM:
             "Please start Ollama and ensure the model is available."
         ) from e
     except Exception as e:
-        if "connection" in str(e).lower():
+        error_str = str(e).lower()
+        if "connection" in error_str:
             raise OllamaConnectionError(
                 f"Ollama server is not running at {settings.ollama_base_url}. "
                 "Please start Ollama and ensure the model is available."
             ) from e
+        if "model" in error_str or "not found" in error_str or "pull" in error_str:
+            raise OllamaConnectionError(
+                f"Model '{settings.ollama_model}' is not installed.\n"
+                f"Run:\n"
+                f"ollama pull {settings.ollama_model}"
+            ) from e
         raise
+
+
+def invoke_with_encoding(llm: OllamaLLM, prompt: str) -> str:
+    """Invoke LLM with proper UTF-8 encoding handling.
+    
+    Args:
+        llm: OllamaLLM instance.
+        prompt: Prompt string.
+        
+    Returns:
+        LLM response with proper encoding.
+    """
+    response = llm.invoke(prompt)
+    # Ensure response is properly decoded as UTF-8
+    if isinstance(response, bytes):
+        response = response.decode('utf-8', errors='replace')
+    return response

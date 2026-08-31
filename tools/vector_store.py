@@ -1,6 +1,7 @@
 """Vector store for RAG system using ChromaDB."""
 
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -20,6 +21,70 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 
 
+def preprocess_document_content(content: str) -> str:
+    """Preprocess document content to remove TOC, page numbers, and OCR noise.
+    
+    Args:
+        content: Raw document content.
+        
+    Returns:
+        Cleaned content.
+    """
+    lines = content.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Skip empty lines
+        if not stripped:
+            continue
+        
+        # Skip page numbers (standalone numbers)
+        if re.match(r'^\d{1,4}$', stripped):
+            continue
+        
+        # Skip page number patterns
+        if re.match(r'^Page\s*\d+', stripped, re.IGNORECASE):
+            continue
+        if re.match(r'^페이지\s*\d+', stripped):
+            continue
+        if re.match(r'^P\.\s*\d+', stripped):
+            continue
+        
+        # Skip TOC markers
+        if stripped in ['CONTENTS', '목차', '차례', 'INDEX', '목 차']:
+            continue
+        
+        # Skip lines that are only OCR noise (special characters, numbers)
+        if re.match(r'^[\d\s\-\_\.]+$', stripped):
+            continue
+        
+        # Skip image caption markers
+        if re.match(r'^<.*?체계도.*?>$', stripped):
+            continue
+        if re.match(r'^<.*?소개자료.*?>$', stripped):
+            continue
+        if re.match(r'^<.*?이미지.*?>$', stripped):
+            continue
+        if re.match(r'^\[.*?그림.*?\]$', stripped):
+            continue
+        
+        # Skip source references
+        if re.match(r'^<출처', stripped):
+            continue
+        if re.match(r'^출처\s*:', stripped):
+            continue
+        
+        cleaned_lines.append(line)
+    
+    # Join and clean up extra whitespace
+    cleaned_content = '\n'.join(cleaned_lines)
+    cleaned_content = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned_content)
+    
+    return cleaned_content.strip()
+
+
 class VectorStore:
     """Vector store for document storage and retrieval using ChromaDB."""
     
@@ -36,12 +101,24 @@ class VectorStore:
         # Initialize embedding model
         self.embedding_model = get_embedding_model(settings)
         
-        # Initialize text splitter for chunking
+        # Initialize text splitter for service-based chunking
+        # Changed from character-based to service-based chunking
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=150,
+            chunk_size=600,  # 400-800 tokens target
+            chunk_overlap=100,  # 50-100 tokens overlap
             length_function=len,
+            separators=["\n\n### ", "\n\n## ", "\n\n", "\n", " "],  # Split by headers first
         )
+        
+        # Print chunk generation rules
+        LOGGER.info("=" * 60)
+        LOGGER.info("Chunk Generation Rules:")
+        LOGGER.info(f"  Splitter Type: RecursiveCharacterTextSplitter")
+        LOGGER.info(f"  Chunk Size: {self.text_splitter._chunk_size} characters")
+        LOGGER.info(f"  Chunk Overlap: {self.text_splitter._chunk_overlap} characters")
+        LOGGER.info(f"  Separators: {self.text_splitter._separators}")
+        LOGGER.info(f"  Recursive: Yes")
+        LOGGER.info("=" * 60)
         
         # Initialize ChromaDB client
         self.client = chromadb.PersistentClient(
@@ -83,8 +160,85 @@ class VectorStore:
                 LOGGER.debug(f"Document already exists, skipping: {doc.url}")
                 continue
             
+            # Preprocess document content to remove TOC, page numbers, OCR noise
+            cleaned_content = preprocess_document_content(doc.content)
+            
+            if not cleaned_content:
+                LOGGER.warning(f"Empty content after preprocessing for document: {doc.url}")
+                continue
+            
             # Chunk the document content
-            chunks = self.text_splitter.split_text(doc.content)
+            chunks = self.text_splitter.split_text(cleaned_content)
+            
+            if not chunks:
+                LOGGER.warning(f"No chunks generated for document: {doc.url}")
+                continue
+            
+            # Save chunks to txt files for debugging
+            chunk_output_dir = Path("debug_chunks")
+            chunk_output_dir.mkdir(exist_ok=True)
+            
+            # Analyze chunks for CONTENTS, multiple services, OCR issues
+            chunk_stats = {
+                'total': len(chunks),
+                'with_contents': 0,
+                'with_multiple_services': 0,
+                'with_ocr_issues': 0,
+                'lengths': []
+            }
+            
+            valid_chunks = []
+            for i, chunk in enumerate(chunks):
+                chunk_id = f"{doc.url}_{i}"
+                
+                # Save chunk to txt file
+                chunk_file = chunk_output_dir / f"chunk_{chunk_id.replace(':', '_').replace('/', '_')}.txt"
+                chunk_file.write_text(chunk, encoding='utf-8')
+                
+                # Analyze chunk
+                chunk_stats['lengths'].append(len(chunk))
+                
+                # Check for CONTENTS
+                if 'CONTENTS' in chunk or '목차' in chunk or '차례' in chunk:
+                    chunk_stats['with_contents'] += 1
+                    LOGGER.warning(f"[Chunk Analysis] Chunk #{i} contains CONTENTS/목차 - REMOVING")
+                    continue  # Skip this chunk
+                
+                # Check for OCR issues (standalone numbers, special characters)
+                lines = chunk.split('\n')
+                ocr_noise_count = sum(1 for line in lines if re.match(r'^[\d\s\-\_\.]+$', line.strip()))
+                if ocr_noise_count > len(lines) * 0.5:
+                    chunk_stats['with_ocr_issues'] += 1
+                    LOGGER.warning(f"[Chunk Analysis] Chunk #{i} has OCR noise - REMOVING")
+                    continue  # Skip this chunk
+                
+                # Check for multiple services (AI + 시스템/서비스/플랫폼/모델/솔루션 patterns)
+                service_patterns = [r'AI.*시스템', r'AI.*서비스', r'AI.*플랫폼', r'AI.*모델', r'AI.*솔루션']
+                service_count = sum(len(re.findall(pattern, chunk)) for pattern in service_patterns)
+                if service_count >= 2:
+                    chunk_stats['with_multiple_services'] += 1
+                    LOGGER.warning(f"[Chunk Analysis] Chunk #{i} has {service_count} services - SPLIT REQUIRED")
+                    # Still include the chunk but log warning
+                
+                valid_chunks.append(chunk)
+            
+            # Replace original chunks with filtered valid chunks
+            chunks = valid_chunks
+            
+            # Print chunk statistics
+            if chunk_stats['total'] > 0:
+                avg_length = sum(chunk_stats['lengths']) / len(chunk_stats['lengths'])
+                max_length = max(chunk_stats['lengths'])
+                LOGGER.info("=" * 60)
+                LOGGER.info(f"Chunk Statistics for {doc.url}:")
+                LOGGER.info(f"  Total Chunks: {chunk_stats['total']}")
+                LOGGER.info(f"  Valid Chunks (after filtering): {len(chunks)}")
+                LOGGER.info(f"  Removed (CONTENTS): {chunk_stats['with_contents']}")
+                LOGGER.info(f"  Removed (OCR Issues): {chunk_stats['with_ocr_issues']}")
+                LOGGER.info(f"  With Multiple Services: {chunk_stats['with_multiple_services']}")
+                LOGGER.info(f"  Average Length: {avg_length:.0f} characters")
+                LOGGER.info(f"  Max Length: {max_length} characters")
+                LOGGER.info("=" * 60)
             
             if not chunks:
                 LOGGER.warning(f"No chunks generated for document: {doc.url}")

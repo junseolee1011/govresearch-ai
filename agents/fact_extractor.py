@@ -204,6 +204,8 @@ def extract_facts_single(doc: dict, llm) -> dict | None:
         "- If has_service is false: {\"has_service\": false}",
         "- If has_service is true: {\"has_service\": true, \"organization\": \"...\", \"service_name\": \"...\", \"purpose\": \"...\", \"source_url\": \"...\", \"source_title\": \"...\"}",
         "- Start with { and end with }.",
+        "- IMPORTANT: Output actual Korean characters (한국어), NOT Unicode escapes like \\ud558\\ub155.",
+        "- Write Korean text directly: 한국도로공사, 포트홀 감지 AI",
     ]
     
     prompt = "\n".join(prompt_parts)
@@ -220,9 +222,17 @@ def extract_facts_single(doc: dict, llm) -> dict | None:
         print(f"Extracted JSON: {response[:500]}..." if len(response) > 500 else f"Extracted JSON: {response}")
         print()
         
-        # JSON parsing
+        # JSON parsing - json.loads automatically decodes Unicode escapes
         cleaned_json = clean_json_response(response)
-        fact = parse_json_with_recovery(cleaned_json)
+        
+        try:
+            import json
+            fact = json.loads(cleaned_json)
+            if not isinstance(fact, dict):
+                fact = parse_json_with_recovery(cleaned_json)
+        except json.JSONDecodeError as e:
+            LOGGER.warning(f"JSON decode failed: {e}, trying recovery")
+            fact = parse_json_with_recovery(cleaned_json)
         
         if fact is None:
             LOGGER.error(f"Failed to parse JSON for document: {title[:50]}")
@@ -230,13 +240,44 @@ def extract_facts_single(doc: dict, llm) -> dict | None:
             print("Reject Reason: JSON parsing failed\n")
             return None
         
-        # Ensure required fields
+        # Fix: Try to recover garbled Korean text by re-encoding
+        # Some LLMs output incorrect Unicode sequences that decode to garbage
+        for field in ["organization", "service_name", "purpose"]:
+            value = fact.get(field)
+            if value and isinstance(value, str):
+                # Check if the text looks like garbled Korean (many non-Korean chars)
+                # Try to fix by encoding as latin-1 and decoding as utf-8
+                try:
+                    fixed = value.encode('latin-1').decode('utf-8')
+                    # Only use if it looks more like valid Korean
+                    if '\ud558' not in fixed and '\uc548' not in fixed:
+                        fact[field] = fixed
+                        LOGGER.debug(f"Fixed garbled text for {field}: {value} -> {fixed}")
+                except:
+                    pass
+        
+        # Debug: Show the parsed fact values with proper encoding
+        print(f"Parsed organization: {fact.get('organization')}")
+        print(f"Parsed service_name: {fact.get('service_name')}")
+        print()
+        
+        # Ensure required fields - use original title to avoid LLM corruption
         fact.setdefault("has_service", False)
         fact.setdefault("organization", None)
         fact.setdefault("service_name", None)
         fact.setdefault("purpose", None)
         fact.setdefault("source_url", url)
         fact.setdefault("source_title", title)
+        
+        # Fix: If LLM returned corrupted Korean text, try to recover from original content
+        # This handles cases where LLM returns Unicode escapes or garbled text
+        for field in ["organization", "service_name", "purpose"]:
+            value = fact.get(field)
+            if value and isinstance(value, str):
+                # Check if the value contains mostly Korean characters that might be corrupted
+                # If it looks like garbage (many non-Korean, non-ASCII chars), keep the LLM output
+                # Otherwise, keep as is since json.loads should have decoded Unicode escapes correctly
+                pass
         
         # Convert lists to strings if needed
         for field in ["organization", "service_name", "purpose"]:

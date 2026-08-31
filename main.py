@@ -31,6 +31,12 @@ def main() -> None:
     
     settings = get_settings()
     configure_logging(settings.log_level)
+    
+    # Log the Ollama model being used
+    import logging
+    LOGGER = logging.getLogger(__name__)
+    LOGGER.info(f"Using Ollama model: {settings.ollama_model}")
+    
     arguments = parse_arguments()
     topic = arguments.topic or settings.default_research_topic
     result = run_research(topic, settings)

@@ -1,38 +1,70 @@
-# GovResearch-AI
+# GovResearch-AI (PoC with MCP)
 
-GovResearch-AI is an autonomous, multi-agent research workflow for identifying
-and classifying AI services used by public institutions. It plans a research
-task, performs web searches via Tavily, summarizes findings using local Ollama LLM,
-and produces a structured Markdown report. Sprint 5 adds Research Quality & Reflection Agent
-for professional-grade research reports.
+GovResearch-AI PoC is a simplified research workflow demonstrating MCP (Model Context Protocol) integration. It uses MCP Client to invoke tools on MCP Servers for web search and local document access.
 
 ## Features
 
-- LangGraph `StateGraph` workflow: Planner → Retriever → Decision → Research → Store → Source Ranker → Deduplicator → Fact Extractor → Reflection → Summarizer → Report
-- **RAG with ChromaDB**: Intelligent document caching and semantic retrieval
-- **Embedding model**: BAAI/bge-small-en-v1.5 for semantic similarity search
-- **Conditional workflow**: Skips web search if sufficient relevant documents found in cache
-- **Reflection Agent**: Evaluates research quality and triggers additional research if needed
-- **Source Ranking**: Filters and ranks sources by quality (1-5 stars)
-- **Deduplication**: Removes duplicates using URL, title, and content similarity (RapidFuzz)
-- **Fact Extraction**: Structured JSON extraction from documents
-- **Search Optimization**: Domain preferences for high-quality sources (gov, edu, ac)
-- Tavily web search integration for real-time research data
-- Ollama integration for local LLM inference (qwen3:8b default, llama3.1:8b supported)
-- Source classification: Government, Research, News, Other
-- Typed, shared workflow state
-- File-based prompts with variable substitution
-- Structured logging with execution timing and response metrics
-- Professional Markdown report generation with citations and source statistics
+- **MCP-based Architecture**: Researcher uses MCP Client to invoke tools on MCP Servers
+- **Simple LangGraph workflow**: Planner → Research → Report Writer → END
+- **Tavily MCP Server**: Web search via MCP protocol
+- **Filesystem MCP Server**: Local document reading via MCP protocol
+- **Ollama integration**: Local LLM inference (qwen2.5:7b default)
+- **Streamlit UI**: Simple web interface for research queries
+- **Markdown reports**: Distinguishes web sources and local documents
+
+## MCP Structure
+
+### MCP Client (`mcp/client.py`)
+
+The MCP Client is responsible for:
+- Registering MCP Servers
+- Invoking tools on registered servers
+- Managing tool execution
+
+```python
+mcp_client = MCPClient()
+mcp_client.register_server("filesystem", filesystem_server)
+mcp_client.register_server("tavily", tavily_server)
+result = mcp_client.call_tool("tavily", "search", query="...", max_results=5)
+```
+
+### Filesystem MCP Server (`mcp/servers/filesystem.py`)
+
+The Filesystem MCP Server provides tools for:
+- `read_text_file`: Read text files from local filesystem
+- `read_markdown`: Read markdown files
+- `list_files`: List files in a directory
+
+**Purpose**: Enable Research Agent to access local reference documents.
+
+### Tavily MCP Server (`mcp/servers/tavily.py`)
+
+The Tavily MCP Server provides tools for:
+- `search`: Perform web search with query and max_results parameters
+
+**Purpose**: Enable Research Agent to perform web searches via MCP protocol.
+
+## Workflow
+
+```
+User Query
+    ↓
+Planner (generate search keywords)
+    ↓
+Researcher (MCP Client)
+    ├─→ Filesystem MCP (read local documents)
+    └─→ Tavily MCP (web search)
+    ↓
+Report Writer (generate Markdown with web/local sources)
+    ↓
+END
+```
 
 ## Requirements
 
 - Python 3.11+
 - Ollama (local LLM runtime)
 - Tavily API key (free tier available at https://tavily.com)
-- ChromaDB (vector database, installed via pip)
-- sentence-transformers (embedding model, installed via pip)
-- rapidfuzz (duplicate detection, installed via pip)
 
 ## Installation
 
@@ -43,11 +75,7 @@ Download and install Ollama from [ollama.ai](https://ollama.ai).
 ### Step 2: Download a Model
 
 ```bash
-# Default model (qwen3:8b)
-ollama pull qwen3:8b
-
-# Alternative: llama3.1:8b
-ollama pull llama3.1:8b
+ollama pull qwen2.5:7b
 ```
 
 Ensure Ollama is running (default: `http://localhost:11434`).
@@ -71,10 +99,10 @@ cp .env.example .env
 
 Get your free Tavily API key from [tavily.com](https://tavily.com).
 
-Edit `.env` to add Tavily and RAG configuration:
+Edit `.env` to add Tavily configuration:
 
 ```dotenv
-OLLAMA_MODEL=qwen3:8b
+OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_BASE_URL=http://localhost:11434
 TEMPERATURE=0.2
 TOP_P=0.9
@@ -82,257 +110,102 @@ MAX_TOKENS=2048
 TAVILY_API_KEY=tvly-xxxxxxxx
 SEARCH_MAX_RESULTS=5
 SEARCH_TOPIC=general
-EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
-CHROMA_PATH=chroma
-RETRIEVAL_K=5
-SIMILARITY_THRESHOLD=0.75
-MIN_RETRIEVED_DOCS=3
 ```
 
 ## Usage
+
+### Command Line
 
 ```bash
 # Run with default topic
 python main.py
 
-# Run with custom topic (Korean)
-python main.py --topic "국내 공공기관 생성형 AI 구축 사례 조사"
-
-# Run with custom topic (English)
-python main.py --topic "AI services used by municipal governments"
+# Run with custom topic
+python main.py --topic "한국 공공기관 AI 서비스 현황"
 ```
 
-The generated Markdown report includes:
-- Research objective
-- Search queries used
-- Key findings from web search
-- **Retrieved Knowledge** (from ChromaDB cache with similarity scores)
-- **New Findings** (from fresh web search if cache miss)
-- **Comparison Analysis** (between cached and new findings)
-- Service inventory with institution details
-- Service classification by type
-- **Recommendations** (based on integrated findings)
-- References with URLs
-- Next steps
+### Streamlit UI
+
+```bash
+streamlit run ui.py
+```
+
+## Demo Scenario
+
+1. **User submits query**: "공공기관 AI 서비스 현황"
+2. **Planner generates search keywords**: ["공공기관 AI 서비스 현황"]
+3. **Researcher uses MCP Client with rule-based tool selection**:
+   - Topic contains "현황" → Use Filesystem MCP
+   - Topic contains "서비스" → Use Tavily MCP
+   - Calls `Filesystem MCP` → `list_files("data/")` → Finds 2 files
+   - Calls `Filesystem MCP` → `read_markdown("data/공공AI사례.md")` → Reads local document
+   - Calls `Filesystem MCP` → `read_text_file("data/AI정책현황.txt")` → Reads local document
+   - Calls `Tavily MCP` → `search(query="...", max_results=5)` → Performs web search
+4. **Report Writer uses Ollama**:
+   - Combines web results and local documents
+   - Sends to Ollama with structured prompt
+   - Generates professional Markdown report with:
+     - Executive Summary
+     - 핵심 내용
+     - 주요 사례
+     - 시사점
+     - 로컬 참고자료
+     - 웹 참고자료
+
+## Demo Flow
+
+```
+User Query
+    ↓
+Planner (generate search keywords)
+    ↓
+Researcher (MCP Client)
+    ├─→ Rule-based Tool Selection
+    │   ├─→ Topic contains "현황" → Use Filesystem
+    │   └─→ Topic contains "서비스" → Use Tavily
+    ├─→ Filesystem MCP
+    │   ├─→ list_files("data/")
+    │   ├─→ read_markdown("data/공공AI사례.md")
+    │   └─→ read_text_file("data/AI정책현황.txt")
+    └─→ Tavily MCP
+        └─→ search(query="...", max_results=5)
+    ↓
+Report Writer (Ollama)
+    ├─→ Build prompt with web + local data
+    ├─→ Call Ollama LLM
+    └─→ Generate structured Markdown report
+    ↓
+END
+```
 
 ## Architecture
 
 ```text
 main.py
   └── app/workflow.py
-        └── app/graph.py (LangGraph StateGraph)
-              ├── agents/planner.py (generate research plan)
-              ├── agents/retriever.py (ChromaDB semantic search)
-              ├── agents/researcher.py (Tavily web search + source classification)
-              ├── agents/store.py (store results in ChromaDB)
-              ├── agents/summarizer.py (Ollama: summarize with RAG context)
-              └── agents/report_writer.py (Ollama: generate RAG report)
+        └── app/graph.py (LangGraph StateGraph with MCP)
+              ├── mcp/client.py (MCP Client)
+              ├── mcp/servers/filesystem.py (Filesystem MCP Server)
+              ├── mcp/servers/tavily.py (Tavily MCP Server)
+              ├── agents/planner.py (generate search keywords)
+              ├── agents/researcher.py (use MCP Client for tools)
+              └── agents/report_writer.py (generate Markdown report)
 
 Shared state: app/state.py
 Configuration: config/settings.py
-Prompts: prompts/*.txt (with variable substitution)
-Logging: tools/logger.py (with execution metrics)
+Logging: tools/logger.py
 Ollama client: tools/ollama_client.py
 Tavily search: tools/tavily_search.py
-Vector store: tools/vector_store.py (ChromaDB)
-Embeddings: tools/embeddings.py (sentence-transformers)
-Document model: models/document.py
-Reports: reports/
-ChromaDB: chroma/
+UI: ui.py (Streamlit)
 ```
 
-## RAG Architecture
+## Report Structure
 
-### Embedding
-
-The system uses **sentence-transformers** to generate embeddings for semantic search:
-- **Default model**: BAAI/bge-small-en-v1.5
-- **Singleton pattern**: Embedding model initialized once and reused
-- **Configurable**: Model can be changed via `EMBEDDING_MODEL` environment variable
-
-### Vector Database (ChromaDB)
-
-ChromaDB is used for persistent document storage and retrieval:
-- **Storage location**: `chroma/` directory (configurable via `CHROMA_PATH`)
-- **Persistence**: Automatic persistence after document insertion
-- **Metadata**: Each document includes title, URL, source, domain, retrieved_date, language
-- **Deduplication**: Automatic duplicate detection by URL
-
-### Document Chunking
-
-Documents are chunked for efficient retrieval:
-- **Chunk size**: 1000 characters
-- **Overlap**: 150 characters
-- **Splitter**: RecursiveCharacterTextSplitter from LangChain
-
-### Retriever
-
-The retriever agent performs semantic search:
-- **Query embedding**: Converts research topic to embedding vector
-- **Similarity search**: Finds top-k similar documents (default k=5)
-- **Threshold filtering**: Only returns documents above similarity threshold (default 0.75)
-- **Logging**: Logs retrieved document count and similarity scores
-
-### Decision Node
-
-Conditional logic determines workflow path:
-- **Cache hit**: If ≥ `MIN_RETRIEVED_DOCS` found, skip web search
-- **Cache miss**: If insufficient documents, perform web search via Tavily
-- **Configurable thresholds**: `RETRIEVAL_K`, `SIMILARITY_THRESHOLD`, `MIN_RETRIEVED_DOCS`
-
-### Workflow Flow
-
-```
-User Query
-    ↓
-Planner (research plan)
-    ↓
-Retriever (search ChromaDB)
-    ↓
-Decision (enough context?)
-    ↓
-    ├─ Yes → Summarizer → Report Writer
-    └─ No → Research (Tavily) → Store (ChromaDB) → Summarizer → Report Writer
-```
-
-## Sprint 4 Implementation
-
-### RAG Pipeline
-
-- **ChromaDB integration**: Persistent vector database for document storage
-- **Semantic search**: Embedding-based similarity search using sentence-transformers
-- **Document chunking**: RecursiveCharacterTextSplitter for efficient retrieval
-- **Conditional workflow**: Decision node to skip web search on cache hit
-- **Duplicate prevention**: URL-based deduplication before storage
-- **Metadata tracking**: Comprehensive metadata for each document
-
-### New Components
-
-- **tools/embeddings.py**: Singleton embedding model manager
-- **tools/vector_store.py**: ChromaDB wrapper for document operations
-- **models/document.py**: Document dataclass with metadata
-- **agents/retriever.py**: Semantic search agent
-- **prompts/summarizer.txt**: RAG-aware summarization prompt
-- **Updated prompts/report_writer.txt**: RAG-specific report sections
-
-### Enhanced Summarizer
-
-- **RAG context**: Integrates retrieved documents with new search results
-- **Template-based**: Uses prompt template for consistent formatting
-- **Dual input**: Processes both cached knowledge and fresh findings
-
-### Enhanced Report Writer
-
-- **Retrieved Knowledge section**: Shows cached documents with similarity scores
-- **New Findings section**: Highlights fresh web search results
-- **Comparison Analysis**: LLM-generated comparison between cached and new data
-- **Recommendations section**: Actionable recommendations based on integrated findings
-
-### Updated Workflow
-
-```
-Planner → Retriever → Decision → [Research → Store] → Summarizer → Report Writer
-```
-
-### State Extensions
-
-- `retrieved_documents`: List of documents retrieved from ChromaDB
-- `cache_hit`: Boolean indicating if sufficient documents were found
-- `stored_documents_count`: Number of documents stored in ChromaDB
-
-## Sprint 5 Implementation
-
-### Research Quality Pipeline
-
-- **Reflection Agent**: Evaluates research quality and triggers additional research
-- **Source Ranking**: Filters sources by quality (1-5 stars)
-- **Deduplication**: Removes duplicates using RapidFuzz (URL, title, content)
-- **Fact Extraction**: Structured JSON extraction from documents
-- **Search Optimization**: Domain preferences for high-quality sources
-
-### Reflection Criteria
-
-Automatically triggers additional search if:
-- Less than 8 unique organizations
-- Government sources < 5
-- International cases == 0
-- Implementation examples < 5
-- Duplicate ratio > 30%
-
-Maximum reflection loop: 2 (prevents infinite loops)
-
-### Source Quality Ranking
-
-- **5 stars**: Government, Official Public Institution, Research Institute, Peer-reviewed Paper
-- **4 stars**: University, Large Consulting Firm, International Organization
-- **3 stars**: News, Industry Report
-- **2 stars**: Corporate Blog, Medium
-- **1 star**: Wikipedia, Personal Blog, Forum
-
-### Fact Extraction
-
-Extracts structured JSON from each document:
-```json
-{
-    "organization": "...",
-    "service_name": "...",
-    "country": "...",
-    "service_type": "...",
-    "llm": "...",
-    "rag": true,
-    "launch_year": "...",
-    "purpose": "...",
-    "benefit": "...",
-    "source_url": "...",
-    "source_quality": 5
-}
-```
-
-### New Components
-
-- **agents/reflection.py**: Research quality evaluation agent
-- **tools/source_ranker.py**: Source quality ranking (1-5 stars)
-- **tools/deduplicator.py**: Duplicate removal using RapidFuzz
-- **agents/fact_extractor.py**: Structured fact extraction
-- **Updated tools/tavily_search.py**: Domain preferences for search
-
-### Enhanced Report Structure
-
-- Executive Summary
-- Research Objective
-- Methodology
-- Search Strategy
-- Organization Inventory
-- Domestic Cases
-- International Cases
-- Technology Stack
-- Source Statistics
-- Implementation Patterns
-- Key Findings
-- Recommendations
-- Limitations
-- References (numbered citations)
-
-### Updated Workflow
-
-```
-Planner → Retriever → Decision → [Research → Store → Source Ranker → Deduplicator → Fact Extractor → Reflection] → Summarizer → Report Writer
-```
-
-### State Extensions
-
-- `extracted_facts`: List of structured fact dictionaries
-- `deduplicated_results`: Deduplicated search results
-- `deduplicated_count`: Count after deduplication
-- `reflection_decision`: Decision from reflection agent
-- `reflection_metrics`: Quality metrics from reflection
-- `reflection_count`: Number of reflection iterations
-
-## Testing
-
-```bash
-python -m unittest discover -s tests -v
-```
+The PoC generates simple Markdown reports with:
+- **요약**: Total sources (web + local)
+- **웹 검색 결과**: Top 5 web search results from Tavily MCP
+- **로컬 참고자료**: Local documents from Filesystem MCP
+- **참고 URL**: All web search URLs
 
 ## Troubleshooting
 
@@ -362,19 +235,43 @@ ollama serve
 ### Model not found
 
 ```bash
-ollama pull qwen3:8b
+ollama pull qwen2.5:7b
 ```
 
-### Slow inference
+## Project Structure
 
-- Check system resources (CPU/memory)
-- Consider smaller model or increase `MAX_TOKENS`
-- Reduce `TEMPERATURE` for faster responses
+```
+govresearch-ai/
+├── agents/
+│   ├── planner.py          # Search keyword generation
+│   ├── researcher.py       # MCP-based research (uses MCP Client)
+│   └── report_writer.py    # Markdown report generation
+├── app/
+│   ├── graph.py            # LangGraph workflow with MCP initialization
+│   ├── state.py            # Shared state definition (includes local_documents)
+│   └── workflow.py         # Workflow orchestration
+├── config/
+│   └── settings.py         # Configuration management
+├── mcp/
+│   ├── client.py           # MCP Client for tool invocation
+│   └── servers/
+│       ├── filesystem.py   # Filesystem MCP Server
+│       └── tavily.py       # Tavily MCP Server
+├── tools/
+│   ├── logger.py           # Logging utilities
+│   ├── ollama_client.py    # Ollama LLM client
+│   └── tavily_search.py    # Tavily search integration
+├── main.py                 # CLI entry point
+├── ui.py                   # Streamlit UI
+└── requirements.txt        # Python dependencies
+```
 
-## Next Steps (Future Sprints)
+## Future Enhancements
 
-- ChromaDB for semantic search and memory
-- Streamlit UI
+This PoC demonstrates MCP integration. Future versions may add:
+- More MCP Servers (Database, API, etc.)
+- Advanced tool orchestration
+- RAG with ChromaDB for semantic search
+- PDF document processing via MCP
 - Docker containerization
-- Reflection agent for self-critique and refinement
-- PDF upload and document analysis
+- Comprehensive testing
