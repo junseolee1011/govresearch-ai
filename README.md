@@ -151,37 +151,6 @@ python -m unittest discover -s tests -v
 
 They cover chunking, tool selection, query generation, the researcher with a fake MCP client, and configuration defaults.
 
-## Troubleshooting
-
-### Tavily API key not configured
-
-```bash
-TavilySearchError: Tavily API key is not configured.
-```
-
-**Solution**: Add your Tavily API key to .env:
-```dotenv
-TAVILY_API_KEY=tvly-xxxxxxxx
-```
-
-### Ollama server is not running
-
-```bash
-Ollama server is not running at http://localhost:11434.
-Please start Ollama and ensure the model is available.
-```
-
-**Solution**: Start Ollama:
-```bash
-ollama serve
-```
-
-### Model not found
-
-```bash
-ollama pull qwen2.5:7b
-```
-
 ## Project Structure
 
 ```
