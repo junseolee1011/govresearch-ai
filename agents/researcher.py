@@ -107,26 +107,17 @@ def should_use_filesystem(topic: str) -> bool:
 
 
 def should_use_tavily(topic: str) -> bool:
-    """Determine if Tavily MCP should be used based on topic.
+    """Determine if Tavily MCP should be used.
+
+    Web search is always enabled: every topic benefits from fresh web results,
+    so there is no topic-based gating (unlike the Filesystem MCP).
 
     Args:
-        topic: Research topic.
+        topic: Research topic (unused, kept for interface symmetry).
 
     Returns:
-        True if Tavily MCP should be used.
+        Always True.
     """
-    # Keywords that suggest web search
-    tavily_keywords = [
-        "뉴스", "최신", "기사", "동향", "트렌드",
-        "news", "latest", "article", "trend"
-    ]
-    
-    topic_lower = topic.lower()
-    for keyword in tavily_keywords:
-        if keyword in topic_lower:
-            return True
-    
-    # Default: use Tavily for general queries
     return True
 
 

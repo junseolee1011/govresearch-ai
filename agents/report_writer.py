@@ -2360,7 +2360,7 @@ def generate_report_from_extraction(merged_services: list[dict], topic: str, sea
     # References
     report += "## References\n\n"
     report += "### Local PDF\n"
-    report += "- data\\AI 정부 서비스 사례집_배포용.pdf\n\n"
+    report += "- data/AI 정부 서비스 사례집_배포용.pdf\n\n"
     
     if search_results:
         report += "### Web\n\n"

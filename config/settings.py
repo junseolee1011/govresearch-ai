@@ -34,6 +34,7 @@ class Settings:
     retrieval_k: int
     similarity_threshold: float
     min_retrieved_docs: int
+    max_search_queries: int
 
 
 def get_settings() -> Settings:
@@ -53,7 +54,7 @@ def get_settings() -> Settings:
             "DEFAULT_RESEARCH_TOPIC",
             "AI services used by public institutions",
         ),
-        ollama_model=os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
+        ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
         ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         temperature=float(os.getenv("TEMPERATURE", "0.2")),
         top_p=float(os.getenv("TOP_P", "0.9")),
@@ -67,4 +68,5 @@ def get_settings() -> Settings:
         retrieval_k=int(os.getenv("RETRIEVAL_K", "5")),
         similarity_threshold=float(os.getenv("SIMILARITY_THRESHOLD", "0.75")),
         min_retrieved_docs=int(os.getenv("MIN_RETRIEVED_DOCS", "3")),
+        max_search_queries=int(os.getenv("MAX_SEARCH_QUERIES", "70")),
     )

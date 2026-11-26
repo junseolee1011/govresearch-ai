@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from config.settings import Settings
 from config.service_constants import SERVICE_SEARCH_QUERIES
@@ -144,7 +144,9 @@ def plan_research(state: ResearchState, settings: Optional[Settings] = None) -> 
         return {"search_queries": keywords}
     
     # Extract search queries from the research plan
-    search_queries = extract_search_queries_from_plan(research_plan, topic)
+    search_queries = extract_search_queries_from_plan(
+        research_plan, topic, max_queries=settings.max_search_queries
+    )
     
     LOGGER.info(
         "Planner generated structured plan with %d sub-tasks and %d search queries",
@@ -256,12 +258,18 @@ Output only valid JSON, no additional text:"""
         raise
 
 
-def extract_search_queries_from_plan(research_plan: ResearchPlan, original_topic: str) -> list[str]:
+def extract_search_queries_from_plan(
+    research_plan: ResearchPlan,
+    original_topic: str,
+    max_queries: int = 70,
+) -> list[str]:
     """Extract search queries from the structured research plan.
     
     Args:
         research_plan: Validated research plan.
         original_topic: Original research topic for language detection.
+        max_queries: Upper bound on queries for Korean public-sector AI topics
+            (the main goal plus the predefined service-specific queries).
         
     Returns:
         List of search queries derived from sub-tasks.
@@ -281,9 +289,9 @@ def extract_search_queries_from_plan(research_plan: ResearchPlan, original_topic
         # Add the main goal as a general query
         queries.insert(0, research_plan.main_goal)
         
-        # Limit to reasonable number of queries
-        if len(queries) > 10:
-            queries = queries[:10]
+        # Limit the number of queries (configurable via MAX_SEARCH_QUERIES)
+        if len(queries) > max_queries:
+            queries = queries[:max_queries]
             
         return queries
     
