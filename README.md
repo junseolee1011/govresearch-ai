@@ -15,7 +15,7 @@ GovResearch-AI is a research agent that investigates how Korean public instituti
 
 ## Workflow
 
-
+```
 User Query
     ↓
 Planner (Ollama: structured plan → search queries)
@@ -27,7 +27,7 @@ Researcher (MCP Client)
 Report Writer (extract → classify → merge → Markdown template)
     ↓
 END
-
+```
 
 ### Planner (agents/planner.py)
 
@@ -50,12 +50,12 @@ END
 
 ## MCP-style Structure
 
-python
+```python
 mcp_client = MCPClient()
 mcp_client.register_server("filesystem", filesystem_server)
 mcp_client.register_server("tavily", tavily_server)
 result = mcp_client.call_tool("tavily", "search", query="...", max_results=5)
-
+```
 
 - **Filesystem server** (mcp/servers/filesystem.py): list_files, read_text_file, read_markdown, read_pdf
 - **Tavily server** (mcp/servers/tavily.py): search
@@ -74,15 +74,15 @@ Download and install Ollama from [ollama.ai](https://ollama.ai).
 
 ### Step 2: Download a Model
 
-bash
+```bash
 ollama pull qwen2.5:7b
-
+```
 
 Ensure Ollama is running (default: http://localhost:11434).
 
 ### Step 3: Set Up Python Environment
 
-bash
+```bash
 python -m venv .venv
 
 # Windows PowerShell
@@ -93,11 +93,11 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 cp .env.example .env
-
+```
 
 ### Step 4: Configure .env
 
-dotenv
+```dotenv
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_BASE_URL=http://localhost:11434
 TEMPERATURE=0.2
@@ -107,7 +107,7 @@ TAVILY_API_KEY=tvly-xxxxxxxx
 SEARCH_MAX_RESULTS=5
 SEARCH_TOPIC=general
 MAX_SEARCH_QUERIES=70
-
+```
 
 MAX_SEARCH_QUERIES bounds how many search queries a Korean public-sector AI topic produces. Every query is one Tavily call, so lower it to shorten runs or reduce API usage.
 
@@ -115,19 +115,19 @@ MAX_SEARCH_QUERIES bounds how many search queries a Korean public-sector AI topi
 
 ### Command Line
 
-bash
+```bash
 # Run with default topic
 python main.py
 
 # Run with custom topic
 python main.py --topic "한국 공공기관 AI 서비스 현황"
-
+```
 
 ### Streamlit UI
 
-bash
+```bash
 streamlit run ui.py
-
+```
 
 Reports are also saved as Markdown files in the reports/ directory.
 
@@ -145,9 +145,9 @@ The generated Markdown report contains:
 
 The unit tests are offline (no Ollama or Tavily key needed):
 
-bash
+```bash
 python -m unittest discover -s tests -v
-
+```
 
 They cover chunking, tool selection, query generation, the researcher with a fake MCP client, and configuration defaults.
 
@@ -155,36 +155,36 @@ They cover chunking, tool selection, query generation, the researcher with a fak
 
 ### Tavily API key not configured
 
-bash
+```bash
 TavilySearchError: Tavily API key is not configured.
-
+```
 
 **Solution**: Add your Tavily API key to .env:
-dotenv
+```dotenv
 TAVILY_API_KEY=tvly-xxxxxxxx
-
+```
 
 ### Ollama server is not running
 
-bash
+```bash
 Ollama server is not running at http://localhost:11434.
 Please start Ollama and ensure the model is available.
-
+```
 
 **Solution**: Start Ollama:
-bash
+```bash
 ollama serve
-
+```
 
 ### Model not found
 
-bash
+```bash
 ollama pull qwen2.5:7b
-
+```
 
 ## Project Structure
 
-
+```
 govresearch-ai/
 ├── agents/
 │   ├── planner.py               # Structured plan and search queries
@@ -212,7 +212,7 @@ govresearch-ai/
 ├── main.py                      # CLI entry point
 ├── ui.py                        # Streamlit UI
 └── requirements.txt
-
+```
 
 ## Known Limitations and Future Work
 
